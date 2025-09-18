@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(yarn install)",
+      "Bash(yarn lint:*)",
+      "WebSearch",
+      "WebFetch(domain:docs.bullmq.io)",
+      "WebFetch(domain:optimalbits.github.io)",
+      "Bash(node:*)",
+      "Bash(yarn test:*)",
+      "Bash(NODE_OPTIONS=\"--experimental-vm-modules\" yarn test tests/system-validation.test.js)",
+      "Bash(systemctl:*)",
+      "Bash(sudo systemctl start:*)",
+      "Bash(redis-cli:*)",
+      "Bash(mongosh:*)",
+      "Bash(yarn start)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(pm2 startup:*)",
+      "Bash(pm2 list:*)",
+      "Bash(pm2 start:*)",
+      "Bash(pm2 logs:*)",
+      "Bash(pm2 stop:*)",
+      "Bash(NODE_ENV=production pm2 start src/app.js --name \"telegram-self-control-bot\" --node-args=\"--experimental-modules\" --env production)",
+      "Bash(pm2 save:*)",
+      "Bash(pm2 status:*)",
+      "Bash(pm2 delete:*)",
+      "Bash(NODE_ENV=production pm2 start \"yarn start\" --name \"telegram-self-control-bot\")",
+      "Bash(pm2 env:*)",
+      "Bash(MONGODB_URI=mongodb://localhost:27017/selfcontrol BOT_TOKEN=8351839684:AAHDNOFpYgAjtfqEo62l-XUv4ghUIbPJyNk NODE_ENV=production pm2 start src/app.js --name telegram-self-control-bot)",
+      "Bash(MONGODB_URI=mongodb://localhost:27017/selfcontrol BOT_TOKEN=8351839684:AAHDNOFpYgAjtfqEo62l-XUv4ghUIbPJyNk NODE_ENV=production pm2 start \"node src/app.js\" --name telegram-self-control-bot)",
+      "Bash(NODE_ENV=production pm2 start src/app.js --name telegram-self-control-bot)",
+      "Bash(pm2 restart:*)",
+      "Bash(NODE_ENV=production timeout 15s node src/app.js)",
+      "Bash(yarn pm2:start:*)",
+      "Bash(chmod:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,53 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.test
+
+# Logs
+logs/
+*.log
+
+# PM2
+.pm2/
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Sensitive scripts
+scripts/pm2-start.sh
+scripts/deploy.sh
+scripts/*-prod.sh
+
+# Temporary files
+tmp/
+temp/
+picture/
+开发方案.md
+development/
