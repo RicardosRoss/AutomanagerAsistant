@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pm2 status:*)",
+      "Bash(pm2 logs:*)",
+      "Bash(systemctl:*)",
+      "Bash(pm2 startup:*)",
+      "Bash(pm2 save:*)",
+      "Bash(pm2 info:*)",
+      "Bash(pm2 delete:*)",
+      "Bash(pm2 start:*)",
+      "Read(//home/telegramAutomanager/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
