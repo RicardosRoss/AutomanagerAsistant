@@ -1,4 +1,5 @@
 import winston from 'winston';
+import fs from 'fs';
 import config from '../../config/index.js';
 import { sanitizeForLogging } from './helpers.js';
 
@@ -58,13 +59,11 @@ const logger = winston.createLogger({
 
 // 在生产环境和开发环境添加文件日志
 if (config.app.environment !== 'test') {
-  // 创建日志目录（如果不存在）
+  // 创建日志目录（如果不存在）- 使用同步方法
   try {
-    await import('fs').then((fs) => {
-      if (!fs.existsSync('logs')) {
-        fs.mkdirSync('logs', { recursive: true });
-      }
-    });
+    if (!fs.existsSync('logs')) {
+      fs.mkdirSync('logs', { recursive: true });
+    }
   } catch (error) {
     console.warn('创建日志目录失败:', error.message);
   }

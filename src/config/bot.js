@@ -7,9 +7,13 @@ import logger from '../utils/logger.js';
 class BotConfig {
   constructor() {
     this.token = config.telegram.token;
+
+    // 支持强制polling模式（通过FORCE_POLLING环境变量）
+    const usePolling = config.telegram.polling || config.app.environment !== 'production';
+
     this.options = {
-      polling: config.app.environment !== 'production',
-      webHook: config.app.environment === 'production'
+      polling: usePolling,
+      webHook: !usePolling && config.app.environment === 'production'
     };
 
     // 验证必要的配置
