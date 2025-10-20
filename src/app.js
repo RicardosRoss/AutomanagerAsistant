@@ -52,11 +52,6 @@ class SelfControlApp {
         dbStatus: 'connected',
         redisStatus: 'connected'
       });
-
-      // 通知PM2应用已准备就绪
-      if (process.send) {
-        process.send('ready');
-      }
     } catch (error) {
       logger.error('应用初始化失败', { error: error.message, stack: error.stack });
       await this.shutdown(1);

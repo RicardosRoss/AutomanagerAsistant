@@ -41,7 +41,7 @@ const baseConfig = {
   telegram: {
     token: process.env.BOT_TOKEN,
     webhookUrl: process.env.WEBHOOK_URL,
-    polling: environment !== 'production',
+    polling: process.env.FORCE_POLLING === 'true' || environment !== 'production',
     mockApi: process.env.MOCK_TELEGRAM_API === 'true',
   },
 

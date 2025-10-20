@@ -5,38 +5,55 @@ module.exports = {
   apps: [
     {
       name: 'telegram-self-control-bot', // 服务名称
-      script: 'src/app.js', // 入口文件
-      cwd: __dirname, // 工作目录（项目根目录）
-      node_args: '--experimental-modules',
+      script: './start.sh', // 使用启动脚本
+      cwd: '/home/telegramAutomanager', // 工作目录（绝对路径）
+
+      // Interpreter settings
+      interpreter: 'bash',
+
+      // Environment variables - Production
+      env: {
+        NODE_ENV: 'production',
+        PORT: 3000,
+        REDIS_DB: 0, // 明确指定使用 DB 0
+        ...process.env,
+      },
+      // Environment variables - Development
+      env_development: {
+        NODE_ENV: 'development',
+        PORT: 3000,
+        REDIS_DB: 0,
+        ...process.env,
+      },
+
+      // Process management
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
       watch: false,
       max_memory_restart: '500M',
 
-      // 默认环境（开发）
-      env: {
-        NODE_ENV: 'development',
-        ...process.env,
-      },
+      // Restart settings
+      restart_delay: 5000,
+      min_uptime: '5s',  // 降低最小运行时间要求
+      max_restarts: 50,  // 增加最大重启次数
 
-      // 生产环境
-      env_production: {
-        NODE_ENV: 'production',
-        ...process.env,
-      },
+      // PM2 ready signal - disabled to prevent timeout issues
+      // wait_ready: true,
+      // listen_timeout: 10000,
 
-      // 修复重启问题
-      wait_ready: true,   // 启用等待ready信号
-      listen_timeout: 10000, // 等待ready信号10秒
-      min_uptime: '10s',  // 至少运行10秒才算成功
-      max_restarts: 10,   // 最大重启次数
+      // Graceful shutdown
+      kill_timeout: 5000,
 
-      // 日志配置
-      log_file: process.env.LOG_FILE || 'logs/combined.log',
-      out_file: 'logs/out.log',
-      error_file: 'logs/error.log',
+      // Logging - 使用PM2默认日志路径
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+
+      // Error handling
+      exp_backoff_restart_delay: 100,
+
+      // Metadata tags for easy filtering
+      tags: ['telegram-bot', 'self-control', 'mongodb', 'redis-db0']
     },
   ],
 };
