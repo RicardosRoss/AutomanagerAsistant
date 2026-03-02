@@ -55,7 +55,20 @@
       "Read(//var/log/nginx/**)",
       "Bash(npm cache clean:*)",
       "Bash(pm2 flush:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(NODE_OPTIONS=\"--experimental-vm-modules\" yarn test:*)",
+      "Bash(du:*)",
+      "Bash(sudo journalctl:*)",
+      "Bash(sudo rm:*)",
+      "Bash(sudo truncate:*)",
+      "Bash(killall:*)",
+      "Bash(pm2 kill:*)",
+      "Bash(NODE_ENV=production pm2 start:*)",
+      "Bash(NODE_ENV=production timeout 10 node:*)",
+      "Bash(ls:*)",
+      "Bash(bash scripts/pm2-start.sh:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []
