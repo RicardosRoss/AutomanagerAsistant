@@ -2,12 +2,14 @@ import TelegramBot from 'node-telegram-bot-api';
 import BotConfig from './config/bot.js';
 import TaskService from './services/TaskService.js';
 import QueueService from './services/QueueService.js';
+import CultivationService from './services/CultivationService.js';
 import logger from './utils/logger.js';
 import {
   BOT_COMMANDS,
   CALLBACK_PREFIXES,
   NOTIFICATION_TEMPLATES
 } from './utils/constants.js';
+import CultivationCommandHandlers from './handlers/cultivationCommands.js';
 
 /**
  * Telegram自控力助手Bot
@@ -18,7 +20,9 @@ class SelfControlBot {
     this.config = new BotConfig();
     this.bot = null;
     this.queueService = new QueueService();
-    this.taskService = new TaskService(this.queueService); // 传递共享的QueueService
+    this.cultivationService = new CultivationService();
+    this.taskService = new TaskService(this.queueService, this.cultivationService); // 传递共享的服务
+    this.cultivationHandlers = null; // 修仙命令处理器
     this.isRunning = false;
 
     // 绑定处理器方法
@@ -110,6 +114,11 @@ class SelfControlBot {
     this.bot.on('webhook_error', this.handleError);
 
     logger.info('Bot事件处理器注册完成');
+
+    // 注册修仙系统命令
+    this.cultivationHandlers = new CultivationCommandHandlers(this.bot);
+    this.cultivationHandlers.registerCommands();
+    logger.info('修仙系统命令已注册');
   }
 
   /**
@@ -143,6 +152,18 @@ class SelfControlBot {
     const userId = msg.from.id;
     const { text } = msg;
     const [command, ...args] = text.slice(1).split(' ');
+
+    // 修仙系统命令列表（由 CultivationCommandHandlers 处理）
+    const cultivationCommands = [
+      'realm', 'divination', 'divination_history', 'divination_chart',
+      'breakthrough', 'ascension', 'confirm_ascension',
+      'rankings', 'mystats', 'stones'
+    ];
+
+    // 如果是修仙命令，不处理（由 CultivationCommandHandlers 处理）
+    if (cultivationCommands.includes(command.toLowerCase())) {
+      return;
+    }
 
     switch (command.toLowerCase()) {
       case BOT_COMMANDS.START:
@@ -190,29 +211,36 @@ class SelfControlBot {
    */
   async handleStartCommand(userId, userInfo) {
     const botInfo = this.config.getBotInfo();
-    const welcomeMessage = `🎯 **${botInfo.name}** 欢迎您！
+    const welcomeMessage = `🧙‍♂️ **欢迎踏入修仙之路！**
 
 ${botInfo.description}
 
-**核心功能：**
-${botInfo.features.join('\n')}
+**📚 基础功能：**
+• 完成任务获得灵力和仙石
+• 提升境界，最终飞升成仙
+• 占卜天机，改变命运
 
-**开始使用：**
-• \`/task 学习编程 30\` - 创建30分钟专注任务
-• \`/reserve\` - 预约15分钟后开始
-• \`/status\` - 查看当前状态
-• \`/help\` - 获取详细帮助
+**⚡ 核心命令：**
+• \`/task 任务描述 时长\` - 闭关修炼
+• \`/realm\` - 查看境界和灵力
+• \`/divination <仙石>\` - 占卜天机
+• \`/rankings\` - 修仙排行榜
+• \`/help\` - 查看所有命令
 
-让我们一起培养专注力，实现目标！💪`;
+**🎯 修仙之路：**
+🌱 炼气期 → 🏔️ 筑基期 → 💊 金丹期 → 👶✨ 元婴期 → 🔮 化神期
+🌌 炼虚期 → ☯️ 合体期 → ⚡ 渡劫期 → 🌟 大乘期 → ☁️ 飞升成仙
+
+开始你的修仙之旅吧！💪`;
 
     await this.bot.sendMessage(userId, welcomeMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🚀 立即开始任务', callback_data: 'quick_task' },
-          { text: '⏰ 15分钟预约', callback_data: 'quick_reserve' }
+          { text: '🚀 开始修炼', callback_data: 'quick_task' },
+          { text: '⚡ 查看境界', callback_data: 'quick_realm' }
         ], [
-          { text: '📊 查看状态', callback_data: 'quick_status' },
+          { text: '📊 修仙排行榜', callback_data: 'quick_rankings' },
           { text: '❓ 帮助', callback_data: 'quick_help' }
         ]]
       }
@@ -321,11 +349,46 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
     try {
       const result = await this.taskService.completeTask(userId, taskId, true);
 
-      const message = NOTIFICATION_TEMPLATES.TASK_COMPLETED
-        .replace('{actualDuration}', result.task.actualDuration);
+      // 基础任务完成消息
+      let message = `✅ 闭关修炼结束！\n\n`;
+      message += `⏰ 实际时长：${result.task.actualDuration} 分钟\n`;
+
+      // 修仙奖励信息
+      if (result.cultivationReward) {
+        const reward = result.cultivationReward;
+
+        message += `\n⚡ 获得灵力：${reward.spiritualPower} 点`;
+        if (reward.bonus > 1) {
+          message += ` (x${reward.bonus.toFixed(1)} 加成)`;
+        }
+
+        message += `\n💎 获得仙石：${reward.immortalStones} 颗`;
+
+        // 仙缘事件
+        if (reward.fortuneEvent && reward.fortuneEvent.message) {
+          message += `\n\n${reward.fortuneEvent.message}`;
+          if (reward.fortuneEvent.power > 0) {
+            message += `\n⚡ 额外灵力：+${reward.fortuneEvent.power}`;
+          }
+          if (reward.fortuneEvent.stones > 0) {
+            message += `\n💎 额外仙石：+${reward.fortuneEvent.stones}`;
+          }
+        }
+
+        message += `\n\n📊 当前境界：${reward.newRealm}（${reward.newStage}）`;
+        message += `\n⚡ 当前灵力：${reward.newSpiritualPower}`;
+
+        // 境界突破提示
+        if (reward.realmChanged) {
+          message += `\n\n🎊🎊🎊\n✨ 恭喜！境界提升！\n${reward.oldRealm} → ${reward.newRealm}`;
+        }
+
+        message += `\n\n💡 使用 /divination 占卜天机试试手气！`;
+      }
 
       await this.bot.sendMessage(userId, message);
 
+      // 连击提示
       if (result.user.stats.currentStreak > 0 && result.user.stats.currentStreak % 5 === 0) {
         await this.bot.sendMessage(
           userId,
@@ -670,6 +733,20 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
 
       case 'quick_help':
         await this.handleHelpCommand(userId);
+        break;
+
+      case 'quick_realm':
+        // 调用修仙命令处理器的境界查看功能
+        if (this.cultivationHandlers) {
+          await this.cultivationHandlers.handleRealmCommand({ chat: { id: userId }, from: { id: userId } });
+        }
+        break;
+
+      case 'quick_rankings':
+        // 调用修仙命令处理器的排行榜功能
+        if (this.cultivationHandlers) {
+          await this.cultivationHandlers.handleRankingsCommand({ chat: { id: userId } });
+        }
         break;
 
       default:
