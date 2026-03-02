@@ -2,14 +2,16 @@ import { TaskChain, User, DailyStats } from '../models/index.js';
 import { generateId } from '../utils/index.js';
 import logger from '../utils/logger.js';
 import QueueService from './QueueService.js';
+import CultivationService from './CultivationService.js';
 
 /**
  * TaskService - 任务管理核心服务
  * 实现神圣座位原理：任何任务失败立即重置所有进度
  */
 class TaskService {
-  constructor(queueService = null) {
+  constructor(queueService = null, cultivationService = null) {
     this.queueService = queueService || new QueueService();
+    this.cultivationService = cultivationService || new CultivationService();
   }
 
   /**
@@ -109,33 +111,55 @@ class TaskService {
    */
   async completeTask(userId, taskId, success = true, failureReason = null) {
     try {
-      // 1. 查找任务链
-      const chain = await TaskChain.findOne({
-        userId,
-        'tasks.taskId': taskId
-      });
+      // 🔒 使用原子操作更新任务状态，防止重复结算
+      const endTime = new Date();
+      const newStatus = success ? 'completed' : 'failed';
 
+      // 1. 原子性地查找并更新任务状态（防止竞态条件）
+      const chain = await TaskChain.findOneAndUpdate(
+        {
+          userId,
+          'tasks.taskId': taskId,
+          'tasks.status': 'running' // ← 关键：只有running状态才能更新
+        },
+        {
+          $set: {
+            'tasks.$.status': newStatus,
+            'tasks.$.endTime': endTime
+          }
+        },
+        {
+          new: false // 返回更新前的文档，用于计算奖励
+        }
+      );
+
+      // 如果没有找到，说明任务不存在或已经被完成
       if (!chain) {
-        throw new Error('任务不存在或已被删除');
+        throw new Error('任务不存在、已完成或未在运行状态');
       }
 
-      // 2. 查找具体任务
+      // 2. 获取任务信息（从更新前的文档）
       const task = chain.tasks.find((t) => t.taskId === taskId);
       if (!task) {
         throw new Error('指定的任务不存在');
       }
 
-      if (task.status !== 'running') {
-        throw new Error('任务未在运行状态，无法完成');
-      }
-
-      // 3. 更新任务状态
-      const endTime = new Date();
-      task.status = success ? 'completed' : 'failed';
+      // 3. 计算实际时长
+      task.status = newStatus; // 更新本地对象状态用于后续逻辑
       task.endTime = endTime;
       task.actualDuration = Math.floor((endTime - task.startTime) / 60000); // 实际时长（分钟）
 
-      // 4. 获取用户信息
+      // 4. 重新获取更新后的 chain（用于后续统计更新）
+      const updatedChain = await TaskChain.findOne({
+        userId,
+        'tasks.taskId': taskId
+      });
+
+      if (!updatedChain) {
+        throw new Error('任务链在更新后丢失');
+      }
+
+      // 5. 获取用户信息
       const user = await User.findOne({ userId });
       if (!user) {
         throw new Error('用户不存在');
@@ -143,9 +167,9 @@ class TaskService {
 
       if (success) {
         // 成功完成任务
-        chain.completedTasks += 1;
-        chain.totalMinutes += task.actualDuration;
-        chain.lastTaskCompletedAt = endTime;
+        updatedChain.completedTasks += 1;
+        updatedChain.totalMinutes += task.actualDuration;
+        updatedChain.lastTaskCompletedAt = endTime;
 
         // 更新用户统计
         user.stats.completedTasks += 1;
@@ -153,13 +177,47 @@ class TaskService {
         user.updateStreak(true);
         user.stats.lastTaskDate = endTime;
 
+        // 🌟 奖励修仙系统
+        let cultivationReward = null;
+        try {
+          cultivationReward = await this.cultivationService.awardCultivation(userId, task.actualDuration);
+          logger.info(`修仙奖励: +${cultivationReward.spiritualPower}灵力, +${cultivationReward.immortalStones}仙石`, {
+            userId,
+            taskId,
+            realmChanged: cultivationReward.realmChanged
+          });
+        } catch (error) {
+          logger.error(`修仙奖励失败: ${error.message}`, { userId, taskId });
+          // 修仙奖励失败不影响任务完成
+        }
+
         logger.info(`任务完成成功: ${taskId}, 用户连击数: ${user.stats.currentStreak}`);
+
+        // 6. 保存更新
+        await Promise.all([
+          updatedChain.save(),
+          user.save()
+        ]);
+
+        // 7. 取消相关的定时任务
+        await this.cancelTaskReminders(taskId);
+
+        // 8. 更新每日统计
+        await this.updateDailyStats(userId, task, success);
+
+        return {
+          chain: updatedChain,
+          task,
+          user,
+          wasChainBroken: false,
+          cultivationReward
+        };
       } else {
         // 🔴 神圣座位原理：任务失败 - 完全重置
-        chain.failedTasks += 1;
+        updatedChain.failedTasks += 1;
 
         // 破坏任务链 - 核心逻辑
-        chain.breakChain(failureReason || '任务未能完成', taskId);
+        updatedChain.breakChain(failureReason || '任务未能完成', taskId);
 
         // 重置用户连击记录
         user.stats.failedTasks += 1;
@@ -167,30 +225,31 @@ class TaskService {
 
         logger.warn(`任务失败，链条重置: ${taskId}, 原因: ${failureReason}`, {
           userId,
-          chainId: chain.chainId,
-          previousTotal: chain.totalTasks,
-          previousCompleted: chain.completedTasks
+          chainId: updatedChain.chainId,
+          previousTotal: updatedChain.totalTasks,
+          previousCompleted: updatedChain.completedTasks
         });
+
+        // 6. 保存更新
+        await Promise.all([
+          updatedChain.save(),
+          user.save()
+        ]);
+
+        // 7. 取消相关的定时任务
+        await this.cancelTaskReminders(taskId);
+
+        // 8. 更新每日统计
+        await this.updateDailyStats(userId, task, success);
+
+        return {
+          chain: updatedChain,
+          task,
+          user,
+          wasChainBroken: true,
+          cultivationReward: null
+        };
       }
-
-      // 5. 保存更新
-      await Promise.all([
-        chain.save(),
-        user.save()
-      ]);
-
-      // 6. 取消相关的定时任务
-      await this.cancelTaskReminders(taskId);
-
-      // 7. 更新每日统计
-      await this.updateDailyStats(userId, task, success);
-
-      return {
-        chain,
-        task,
-        user,
-        wasChainBroken: !success
-      };
     } catch (error) {
       logger.error(`完成任务失败: ${error.message}`, { userId, taskId, success });
       throw new Error(`完成任务失败: ${error.message}`);
