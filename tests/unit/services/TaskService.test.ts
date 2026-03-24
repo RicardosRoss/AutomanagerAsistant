@@ -1,27 +1,54 @@
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../../../src/services/TaskService.js';
 
 describe('TaskService', () => {
-  let taskService;
+  let taskService: TaskService;
+  let queueService: {
+    addReminder: ReturnType<typeof vi.fn>;
+    cancelTaskReminders: ReturnType<typeof vi.fn>;
+    setBotInstance: ReturnType<typeof vi.fn>;
+    initialize: ReturnType<typeof vi.fn>;
+    isInitialized: boolean;
+  };
+  let cultivationService: {
+    awardCultivation: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
-    taskService = new TaskService();
+    queueService = {
+      addReminder: vi.fn().mockResolvedValue('job-id'),
+      cancelTaskReminders: vi.fn().mockResolvedValue(0),
+      setBotInstance: vi.fn(),
+      initialize: vi.fn(),
+      isInitialized: true
+    };
+
+    cultivationService = {
+      awardCultivation: vi.fn().mockResolvedValue({
+        spiritualPower: 25,
+        immortalStones: 12,
+        bonus: 1,
+        fortuneEvent: null,
+        newRealm: '炼气期',
+        newStage: '初期',
+        newSpiritualPower: 25,
+        realmChanged: false
+      })
+    };
+
+    taskService = new TaskService(queueService, cultivationService);
   });
 
   describe('神圣座位原理测试', () => {
     test('任务失败应完全重置链条', async () => {
-      const userId = global.testUserId;
+      const userId = globalThis.testUserId;
 
-      // 创建第一个任务并完成
       const firstTask = await taskService.createTask(userId, '任务1', 30);
       await taskService.completeTask(userId, firstTask.task.taskId, true);
 
-      // 创建第二个任务
       const secondTask = await taskService.createTask(userId, '任务2', 30);
-
-      // 第二个任务失败
       const result = await taskService.completeTask(userId, secondTask.task.taskId, false, '测试失败');
 
-      // 验证神圣座位原理：完全重置
       expect(result.chain.status).toBe('broken');
       expect(result.chain.totalTasks).toBe(0);
       expect(result.chain.completedTasks).toBe(0);
@@ -32,7 +59,6 @@ describe('TaskService', () => {
     test('连续成功应增加连击数', async () => {
       const userId = 999888777;
 
-      // 连续完成3个任务
       for (let i = 1; i <= 3; i += 1) {
         const taskResult = await taskService.createTask(userId, `任务${i}`, 25);
         await taskService.completeTask(userId, taskResult.task.taskId, true);
@@ -56,20 +82,21 @@ describe('TaskService', () => {
   });
 
   describe('任务状态管理', () => {
-    test('正在进行的任务不能创建新任务', async () => {
-      const userId = global.testUserId;
+    test('正在进行的任务会自动停止并创建新任务', async () => {
+      const userId = globalThis.testUserId;
+      const firstResult = await taskService.createTask(userId, '任务1', 30);
+      const secondResult = await taskService.createTask(userId, '任务2', 30);
 
-      // 创建第一个任务
-      await taskService.createTask(userId, '任务1', 30);
+      const firstTask = secondResult.chain.tasks.find((task: any) => task.taskId === firstResult.task.taskId);
 
-      // 尝试创建第二个任务，应该失败
-      await expect(
-        taskService.createTask(userId, '任务2', 30)
-      ).rejects.toThrow('当前已有任务正在进行中');
+      expect(firstTask?.status).toBe('cancelled');
+      expect(firstTask?.metadata.notes).toBe('被新任务中断');
+      expect(secondResult.task.status).toBe('running');
+      expect(queueService.cancelTaskReminders).toHaveBeenCalledWith(firstResult.task.taskId);
     });
 
     test('获取用户状态应返回正确信息', async () => {
-      const userId = global.testUserId;
+      const userId = globalThis.testUserId;
       const result = await taskService.createTask(userId, '测试任务', 25);
       const status = await taskService.getUserStatus(userId);
 

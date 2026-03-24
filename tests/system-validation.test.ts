@@ -1,5 +1,6 @@
-// 简单的系统验证测试
-import { generateId, formatDuration, parseTaskCommand } from '../../src/utils/helpers.js';
+import { describe, expect, test } from 'vitest';
+import { generateId, formatDuration, parseTaskCommand } from '../src/utils/helpers.js';
+import { LINEAR_DELAY_PRINCIPLE, SACRED_SEAT_PRINCIPLE } from '../src/utils/constants.js';
 
 describe('系统基础功能验证', () => {
   test('ID生成功能正常', () => {
@@ -24,9 +25,8 @@ describe('系统基础功能验证', () => {
     expect(result2.duration).toBe(25);
   });
 
-  test('神圣座位原理常量验证', async () => {
-    const constants = await import('../../src/utils/constants.js');
-    expect(constants.SACRED_SEAT_PRINCIPLE.RESET_ON_FAILURE).toBe(true);
-    expect(constants.LINEAR_DELAY_PRINCIPLE.DEFAULT_DELAY_MINUTES).toBe(15);
+  test('神圣座位原理常量验证', () => {
+    expect(SACRED_SEAT_PRINCIPLE.RESET_ON_FAILURE).toBe(true);
+    expect(LINEAR_DELAY_PRINCIPLE.DEFAULT_DELAY_MINUTES).toBe(15);
   });
 });
