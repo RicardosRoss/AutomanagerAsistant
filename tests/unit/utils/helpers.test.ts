@@ -1,12 +1,13 @@
+import { describe, expect, test } from 'vitest';
 import {
-  generateId,
-  formatDuration,
   formatDate,
-  validateUserId,
-  validateTaskDuration,
-  parseTaskCommand,
+  formatDuration,
+  generateId,
+  getTodayBounds,
   isToday,
-  getTodayBounds
+  parseTaskCommand,
+  validateTaskDuration,
+  validateUserId
 } from '../../../src/utils/helpers.js';
 
 describe('Helper Functions', () => {
@@ -79,8 +80,8 @@ describe('Helper Functions', () => {
     });
 
     test('无效时长应返回false', () => {
-      expect(validateTaskDuration(4)).toBe(false); // 小于最小值
-      expect(validateTaskDuration(481)).toBe(false); // 大于最大值
+      expect(validateTaskDuration(4)).toBe(false);
+      expect(validateTaskDuration(481)).toBe(false);
       expect(validateTaskDuration('25')).toBe(false);
       expect(validateTaskDuration(null)).toBe(false);
     });
@@ -122,7 +123,7 @@ describe('Helper Functions', () => {
         duration: 25
       });
 
-      expect(parseTaskCommand('学习编程 600')).toEqual({ // 超出范围
+      expect(parseTaskCommand('学习编程 600')).toEqual({
         description: '学习编程 600',
         duration: 25
       });
@@ -131,8 +132,7 @@ describe('Helper Functions', () => {
 
   describe('isToday', () => {
     test('今天的日期应返回true', () => {
-      const today = new Date();
-      expect(isToday(today)).toBe(true);
+      expect(isToday(new Date())).toBe(true);
     });
 
     test('昨天的日期应返回false', () => {

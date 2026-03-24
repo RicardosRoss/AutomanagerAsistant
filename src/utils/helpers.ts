@@ -1,20 +1,39 @@
+export interface RetryOptions {
+  maxAttempts?: number;
+  delay?: number;
+  backoff?: 'fixed' | 'exponential';
+  shouldRetry?: (error: unknown) => boolean;
+}
+
+export interface ParsedTaskCommand {
+  description: string;
+  duration: number;
+}
+
+export interface DateBounds {
+  start: Date;
+  end: Date;
+}
+
+export interface AppError extends Error {
+  code: string;
+  details: Record<string, unknown>;
+  timestamp: string;
+}
+
 /**
  * 生成唯一ID
- * @param {string} prefix - ID前缀
- * @returns {string} 唯一ID
  */
-export function generateId(prefix = 'id') {
+export function generateId(prefix = 'id'): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substr(2, 9); // 增加随机性
+  const random = Math.random().toString(36).slice(2, 11);
   return `${prefix}_${timestamp}_${random}`;
 }
 
 /**
  * 格式化时长（分钟）
- * @param {number} minutes - 分钟数
- * @returns {string} 格式化后的时长字符串
  */
-export function formatDuration(minutes) {
+export function formatDuration(minutes: number | null | undefined): string {
   if (!minutes || minutes <= 0) return '0分钟';
 
   const hours = Math.floor(minutes / 60);
@@ -28,41 +47,43 @@ export function formatDuration(minutes) {
 
 /**
  * 格式化日期时间
- * @param {Date|string} date - 日期对象或日期字符串
- * @param {string} format - 格式类型 ('date', 'time', 'datetime', 'relative')
- * @returns {string} 格式化后的日期字符串
  */
-export function formatDate(date, format = 'datetime') {
-  const dateObj = new Date(date);
-
-  if (isNaN(dateObj.getTime())) {
+export function formatDate(
+  date: Date | string | number | null | undefined,
+  format: 'date' | 'time' | 'datetime' | 'relative' = 'datetime'
+): string {
+  if (date == null) {
     return '无效日期';
   }
 
-  const options = {
-    timeZone: 'Asia/Shanghai',
-    locale: 'zh-CN'
-  };
+  const dateObj = new Date(date);
+
+  if (Number.isNaN(dateObj.getTime())) {
+    return '无效日期';
+  }
+
+  const locale = 'zh-CN';
+  const timeZone = 'Asia/Shanghai';
 
   switch (format) {
     case 'date':
-      return dateObj.toLocaleDateString('zh-CN', {
-        ...options,
+      return dateObj.toLocaleDateString(locale, {
+        timeZone,
         year: 'numeric',
         month: 'numeric',
         day: 'numeric'
       });
 
     case 'time':
-      return dateObj.toLocaleTimeString('zh-CN', {
-        ...options,
+      return dateObj.toLocaleTimeString(locale, {
+        timeZone,
         hour: '2-digit',
         minute: '2-digit'
       });
 
     case 'datetime':
-      return dateObj.toLocaleString('zh-CN', {
-        ...options,
+      return dateObj.toLocaleString(locale, {
+        timeZone,
         year: 'numeric',
         month: 'numeric',
         day: 'numeric',
@@ -74,16 +95,14 @@ export function formatDate(date, format = 'datetime') {
       return formatRelativeTime(dateObj);
 
     default:
-      return dateObj.toLocaleString('zh-CN', options);
+      return dateObj.toLocaleString(locale, { timeZone });
   }
 }
 
 /**
  * 格式化相对时间
- * @param {Date} date - 日期对象
- * @returns {string} 相对时间字符串
  */
-export function formatRelativeTime(date) {
+export function formatRelativeTime(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
@@ -109,30 +128,24 @@ export function formatRelativeTime(date) {
 
 /**
  * 验证用户ID
- * @param {any} userId - 用户ID
- * @returns {boolean} 是否有效
  */
-export function validateUserId(userId) {
+export function validateUserId(userId: unknown): userId is number {
   return typeof userId === 'number' && userId > 0;
 }
 
 /**
  * 验证任务时长
- * @param {any} duration - 任务时长（分钟）
- * @returns {boolean} 是否有效
  */
-export function validateTaskDuration(duration) {
-  return typeof duration === 'number' && duration >= 5 && duration <= 480; // 5分钟-8小时
+export function validateTaskDuration(duration: unknown): duration is number {
+  return typeof duration === 'number' && duration >= 5 && duration <= 480;
 }
 
 /**
  * 清理敏感数据（用于日志记录）
- * @param {Object} data - 原始数据对象
- * @returns {Object} 清理后的数据对象
  */
-export function sanitizeForLogging(data) {
+export function sanitizeForLogging<T extends Record<string, unknown>>(data: T): T {
   const sensitiveFields = ['password', 'token', 'secret', 'key', 'auth'];
-  const sanitized = { ...data };
+  const sanitized: Record<string, unknown> = { ...data };
 
   Object.keys(sanitized).forEach((key) => {
     const lowerKey = key.toLowerCase();
@@ -141,51 +154,46 @@ export function sanitizeForLogging(data) {
     }
   });
 
-  return sanitized;
+  return sanitized as T;
 }
 
 /**
  * 深度复制对象
- * @param {any} obj - 源对象
- * @returns {any} 复制的对象
  */
-export function deepClone(obj) {
+export function deepClone<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') {
     return obj;
   }
 
   if (obj instanceof Date) {
-    return new Date(obj.getTime());
+    return new Date(obj.getTime()) as T;
   }
 
   if (Array.isArray(obj)) {
-    return obj.map((item) => deepClone(item));
+    return obj.map((item) => deepClone(item)) as T;
   }
 
-  const cloned = {};
-  Object.keys(obj).forEach((key) => {
-    cloned[key] = deepClone(obj[key]);
+  const cloned: Record<string, unknown> = {};
+  Object.keys(obj as Record<string, unknown>).forEach((key) => {
+    cloned[key] = deepClone((obj as Record<string, unknown>)[key]);
   });
 
-  return cloned;
+  return cloned as T;
 }
 
 /**
  * 等待指定时间
- * @param {number} ms - 等待时间（毫秒）
- * @returns {Promise<void>}
  */
-export function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
 }
 
 /**
  * 重试函数
- * @param {Function} fn - 要重试的函数
- * @param {Object} options - 重试选项
- * @returns {Promise<any>}
  */
-export async function retry(fn, options = {}) {
+export async function retry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const {
     maxAttempts = 3,
     delay = 1000,
@@ -193,9 +201,9 @@ export async function retry(fn, options = {}) {
     shouldRetry = () => true
   } = options;
 
-  let lastError;
+  let lastError: unknown;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       return await fn();
     } catch (error) {
@@ -206,62 +214,52 @@ export async function retry(fn, options = {}) {
       }
 
       const waitTime = backoff === 'exponential' ? delay * 2 ** (attempt - 1) : delay;
-      console.warn(`重试尝试 ${attempt}/${maxAttempts} 失败，等待 ${waitTime}ms 后重试:`, error.message);
-
+      console.warn(`重试尝试 ${attempt}/${maxAttempts} 失败，等待 ${waitTime}ms 后重试:`, error);
       await sleep(waitTime);
     }
   }
 
-  throw lastError;
+  throw (lastError instanceof Error ? lastError : new Error('重试失败'));
 }
 
 /**
  * 截断字符串
- * @param {string} str - 原始字符串
- * @param {number} maxLength - 最大长度
- * @param {string} suffix - 截断后缀
- * @returns {string} 截断后的字符串
  */
-export function truncateString(str, maxLength = 100, suffix = '...') {
+export function truncateString(str: string | null | undefined, maxLength = 100, suffix = '...'): string {
   if (!str || str.length <= maxLength) {
-    return str || '';
+    return str ?? '';
   }
   return str.substring(0, maxLength - suffix.length) + suffix;
 }
 
 /**
  * 计算百分比
- * @param {number} value - 当前值
- * @param {number} total - 总值
- * @param {number} decimals - 小数位数
- * @returns {number} 百分比
  */
-export function calculatePercentage(value, total, decimals = 1) {
-  if (!total || total === 0) return 0;
+export function calculatePercentage(value: number, total: number, decimals = 1): number {
+  if (!total) return 0;
   return Number(((value / total) * 100).toFixed(decimals));
 }
 
 /**
  * 随机选择数组中的元素
- * @param {Array} array - 数组
- * @returns {any} 随机选中的元素
  */
-export function randomChoice(array) {
+export function randomChoice<T>(array: readonly T[]): T | null {
   if (!Array.isArray(array) || array.length === 0) {
     return null;
   }
-  return array[Math.floor(Math.random() * array.length)];
+  return array[Math.floor(Math.random() * array.length)] ?? null;
 }
 
 /**
  * 检查是否为今天
- * @param {Date|string} date - 日期
- * @returns {boolean} 是否为今天
  */
-export function isToday(date) {
+export function isToday(date: Date | string | number): boolean {
   const dateObj = new Date(date);
-  const today = new Date();
+  if (Number.isNaN(dateObj.getTime())) {
+    return false;
+  }
 
+  const today = new Date();
   return dateObj.getDate() === today.getDate()
     && dateObj.getMonth() === today.getMonth()
     && dateObj.getFullYear() === today.getFullYear();
@@ -269,10 +267,8 @@ export function isToday(date) {
 
 /**
  * 获取今天的开始和结束时间
- * @param {Date} date - 日期（可选，默认今天）
- * @returns {Object} { start, end }
  */
-export function getTodayBounds(date = new Date()) {
+export function getTodayBounds(date: Date = new Date()): DateBounds {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
 
@@ -284,39 +280,41 @@ export function getTodayBounds(date = new Date()) {
 
 /**
  * 解析任务命令参数
- * @param {string} input - 用户输入的命令参数
- * @returns {Object} { description, duration }
  */
-export function parseTaskCommand(input) {
+export function parseTaskCommand(input: string | null | undefined): ParsedTaskCommand {
   if (!input || typeof input !== 'string') {
     return { description: '专注任务', duration: 25 };
   }
 
-  const parts = input.trim().split(' ');
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { description: '专注任务', duration: 25 };
+  }
 
-  // 尝试从最后一个参数提取时长
-  const lastPart = parts[parts.length - 1];
-  const duration = parseInt(lastPart, 10);
+  const parts = trimmed.split(' ');
+  const lastPart = parts.at(-1);
+  if (!lastPart) {
+    return { description: '专注任务', duration: 25 };
+  }
+  const duration = Number.parseInt(lastPart, 10);
 
-  if (!isNaN(duration) && duration >= 5 && duration <= 480) {
-    // 最后一个参数是有效的时长
+  if (!Number.isNaN(duration) && duration >= 5 && duration <= 480) {
     const description = parts.slice(0, -1).join(' ') || '专注任务';
     return { description, duration };
   }
 
-  // 没有有效时长，整个输入作为描述
-  return { description: input || '专注任务', duration: 25 };
+  return { description: trimmed, duration: 25 };
 }
 
 /**
  * 创建错误对象
- * @param {string} message - 错误消息
- * @param {string} code - 错误代码
- * @param {Object} details - 详细信息
- * @returns {Error} 错误对象
  */
-export function createError(message, code = 'GENERAL_ERROR', details = {}) {
-  const error = new Error(message);
+export function createError(
+  message: string,
+  code = 'GENERAL_ERROR',
+  details: Record<string, unknown> = {}
+): AppError {
+  const error = new Error(message) as AppError;
   error.code = code;
   error.details = details;
   error.timestamp = new Date().toISOString();

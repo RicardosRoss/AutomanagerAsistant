@@ -1,18 +1,23 @@
+import type {
+  BaguaDivination,
+  CultivationRealm,
+  FortuneEvent,
+  RealmDisplay,
+  RealmStage
+} from '../types/cultivation.js';
+
 /**
  * 修仙境界配置
  * 定义九大境界及其属性
  */
-
-// 境界阶段配置
-export const REALM_STAGES = {
+export const REALM_STAGES: Record<'early' | 'middle' | 'late' | 'peak', RealmStage> = {
   early: { name: '初期', progress: [0, 33], bonus: 1.0 },
   middle: { name: '中期', progress: [34, 66], bonus: 1.1 },
   late: { name: '后期', progress: [67, 99], bonus: 1.2 },
   peak: { name: '大圆满', progress: [100, 100], bonus: 1.3 }
 };
 
-// 九大修仙境界
-export const CULTIVATION_REALMS = [
+export const CULTIVATION_REALMS: CultivationRealm[] = [
   {
     id: 1,
     name: '炼气期',
@@ -23,7 +28,7 @@ export const CULTIVATION_REALMS = [
     emoji: '🌱',
     color: '#90EE90',
     description: '初入修行，炼化体内杂质，感应天地灵气',
-    cultivationBonus: 1.0, // 修炼加成
+    cultivationBonus: 1.0,
     breakthrough: {
       difficulty: 'easy',
       successRate: 95,
@@ -177,8 +182,7 @@ export const CULTIVATION_REALMS = [
   }
 ];
 
-// 八卦占卜配置
-export const BAGUA_DIVINATION = {
+export const BAGUA_DIVINATION: Record<number, BaguaDivination> = {
   1: { name: '坤卦', meaning: '大凶', multiplier: -4, emoji: '☷', color: '#8B0000' },
   2: { name: '艮卦', meaning: '凶', multiplier: -2, emoji: '☶', color: '#DC143C' },
   3: { name: '坎卦', meaning: '小凶', multiplier: -1, emoji: '☵', color: '#FF6347' },
@@ -189,64 +193,59 @@ export const BAGUA_DIVINATION = {
   8: { name: '乾卦', meaning: '大吉', multiplier: 4, emoji: '☰', color: '#008000' }
 };
 
-// 仙缘事件配置（随机事件）
-export const FORTUNE_EVENTS = [
+export const FORTUNE_EVENTS: FortuneEvent[] = [
   {
     id: 'heavenly_stone',
     name: '天降灵石',
-    probability: 0.05, // 5%概率
+    probability: 0.05,
     reward: { type: 'stones', amount: 50 },
     message: '✨ 天降灵石！获得 50 仙石！'
   },
   {
     id: 'enlightenment',
     name: '顿悟',
-    probability: 0.03, // 3%概率
+    probability: 0.03,
     reward: { type: 'power', multiplier: 1.5 },
     message: '💡 顿悟！本次修炼灵力获得 1.5 倍加成！'
   },
   {
     id: 'spirit_spring',
     name: '灵泉洗礼',
-    probability: 0.02, // 2%概率
+    probability: 0.02,
     reward: { type: 'power', amount: 100 },
     message: '💧 偶遇灵泉，获得额外 100 灵力！'
   },
   {
     id: 'ancient_scroll',
     name: '古籍秘法',
-    probability: 0.01, // 1%概率
+    probability: 0.01,
     reward: { type: 'both', power: 200, stones: 100 },
     message: '📜 发现古籍秘法！获得 200 灵力和 100 仙石！'
   }
 ];
 
-// 工具函数：根据灵力获取当前境界
-export function getCurrentRealm(spiritualPower) {
-  for (let i = CULTIVATION_REALMS.length - 1; i >= 0; i--) {
+export function getCurrentRealm(spiritualPower: number): CultivationRealm {
+  for (let i = CULTIVATION_REALMS.length - 1; i >= 0; i -= 1) {
     const realm = CULTIVATION_REALMS[i];
-    if (spiritualPower >= realm.minPower) {
+    if (realm && spiritualPower >= realm.minPower) {
       return realm;
     }
   }
-  return CULTIVATION_REALMS[0]; // 默认返回炼气期
+  return CULTIVATION_REALMS[0]!;
 }
 
-// 工具函数：根据ID获取境界
-export function getRealmById(id) {
-  return CULTIVATION_REALMS.find(r => r.id === id) || CULTIVATION_REALMS[0];
+export function getRealmById(id: number): CultivationRealm {
+  return CULTIVATION_REALMS.find((realm) => realm.id === id) ?? CULTIVATION_REALMS[0]!;
 }
 
-// 工具函数：获取下一个境界
-export function getNextRealm(currentRealmId) {
+export function getNextRealm(currentRealmId: number): CultivationRealm | null {
   const nextId = currentRealmId + 1;
-  return CULTIVATION_REALMS.find(r => r.id === nextId) || null;
+  return CULTIVATION_REALMS.find((realm) => realm.id === nextId) ?? null;
 }
 
-// 工具函数：计算境界阶段
-export function getRealmStage(spiritualPower, realm) {
+export function getRealmStage(spiritualPower: number, realm: CultivationRealm): RealmStage {
   const powerInRealm = spiritualPower - realm.minPower;
-  const realmRange = realm.maxPower === Infinity ? 10000 : (realm.maxPower - realm.minPower + 1);
+  const realmRange = realm.maxPower === Infinity ? 10000 : realm.maxPower - realm.minPower + 1;
   const percentage = Math.min((powerInRealm / realmRange) * 100, 100);
 
   if (percentage >= 100) return REALM_STAGES.peak;
@@ -255,8 +254,7 @@ export function getRealmStage(spiritualPower, realm) {
   return REALM_STAGES.early;
 }
 
-// 工具函数：格式化境界显示
-export function formatRealmDisplay(spiritualPower) {
+export function formatRealmDisplay(spiritualPower: number): RealmDisplay {
   const realm = getCurrentRealm(spiritualPower);
   const stage = getRealmStage(spiritualPower, realm);
 
@@ -270,19 +268,15 @@ export function formatRealmDisplay(spiritualPower) {
   };
 }
 
-// 工具函数：检查是否可以渡劫
-export function canAttemptBreakthrough(spiritualPower, realm) {
+export function canAttemptBreakthrough(spiritualPower: number, realm: CultivationRealm): boolean {
   if (realm.maxPower === Infinity) {
-    // 大乘期需要特殊条件
-    return spiritualPower >= 50000; // 例如需要50000灵力才能飞升
+    return spiritualPower >= 50000;
   }
 
-  // 其他境界需要达到当前境界的最大值
   return spiritualPower >= realm.maxPower;
 }
 
-// 工具函数：计算修炼加成
-export function calculateCultivationBonus(realm, stage) {
+export function calculateCultivationBonus(realm: CultivationRealm, stage: RealmStage): number {
   return realm.cultivationBonus * stage.bonus;
 }
 

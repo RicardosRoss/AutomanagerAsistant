@@ -5,11 +5,11 @@ module.exports = {
   apps: [
     {
       name: 'telegram-self-control-bot', // 服务名称
-      script: './start.sh', // 使用启动脚本
+      script: 'dist/src/app.js',
       cwd: '/home/telegramAutomanager', // 工作目录（绝对路径）
 
       // Interpreter settings
-      interpreter: 'bash',
+      interpreter: 'node',
 
       // Environment variables - Production
       env: {
