@@ -76,6 +76,8 @@ export interface IUser {
   successRate?: number;
   todayMinutes?: number;
   fullName?: string;
+  divinationWinRate?: number;
+  breakthroughSuccessRate?: number;
 }
 
 export interface IUserMethods {
@@ -91,13 +93,24 @@ export interface IUserMethods {
   recordBreakthrough(success: boolean): UserDocument;
   recordDivination(result: number): UserDocument;
   ascend(): UserDocument;
+  addAchievement(achievementName: string): UserDocument;
 }
 
 export type UserDocument = HydratedDocument<IUser, IUserMethods>;
 
+export interface IUserActiveStats {
+  totalUsers: number;
+  averageStreak: number;
+  totalTasks: number;
+  totalCompletedTasks: number;
+  totalMinutes: number;
+}
+
 export interface IUserModel extends Model<IUser, Record<string, never>, IUserMethods> {
   findOrCreate(userData: IUserIdentityInput): Promise<UserDocument>;
   getLeaderboard(type?: string, limit?: number): Promise<UserDocument[]>;
+  getCultivationLeaderboard(type?: string, limit?: number): Promise<UserDocument[]>;
+  getActiveUserStats(days?: number): Promise<IUserActiveStats>;
 }
 
 export interface IProgressReminder {
@@ -294,6 +307,7 @@ export interface IDailyStatsModel extends Model<IDailyStats, Record<string, neve
   findOrCreateDaily(userId: number, date?: Date): Promise<DailyStatsDocument>;
   getUserPeriodStats(userId: number, days?: number): Promise<DailyStatsDocument[]>;
   generateWeeklyReport(userId: number): Promise<Record<string, unknown>>;
+  getPlatformStats(date?: Date): Promise<Record<string, unknown>>;
 }
 
 export interface IDivinationHistory {
