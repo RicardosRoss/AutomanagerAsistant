@@ -73,7 +73,7 @@ module.exports = {
       }
     },
     {
-      files: ['src/utils/helpers.ts', 'src/config/redis.js'],
+      files: ['src/utils/helpers.ts', 'src/config/redis.ts'],
       rules: {
         'no-restricted-globals': [
           'error',
