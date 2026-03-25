@@ -1,69 +1,119 @@
-import mongoose from 'mongoose';
+import mongoose, { Schema, type CallbackWithoutResultAndOptionalError } from 'mongoose';
+import type {
+  DailyStatsDocument,
+  IDailyStats,
+  IDailyStatsMethods,
+  IDailyStatsModel,
+  IDailySummary,
+  ITask
+} from '../types/models.js';
 
-const dailyStatsSchema = new mongoose.Schema({
-  userId: { type: Number, required: true, index: true },
-  date: { type: Date, required: true }, // 统计日期（日期开始）
-  stats: {
-    tasksStarted: { type: Number, default: 0 },
-    tasksCompleted: { type: Number, default: 0 },
-    tasksFailed: { type: Number, default: 0 },
-    totalMinutes: { type: Number, default: 0 },
-    averageTaskDuration: { type: Number, default: 0 },
-    longestTask: { type: Number, default: 0 },
-    shortestTask: { type: Number, default: Number.MAX_VALUE },
-    successRate: { type: Number, default: 0 },
-    chainsCreated: { type: Number, default: 0 },
-    chainsBroken: { type: Number, default: 0 },
-    longestChain: { type: Number, default: 0 }
+interface IWeeklyReportDay {
+  date: Date;
+  completed: number;
+  minutes: number;
+  successRate: number;
+}
+
+interface IWeeklyReportSummary {
+  totalTasks: number;
+  totalCompletedTasks: number;
+  totalMinutes: number;
+  averageSuccessRate: number;
+  bestDay: IWeeklyReportDay | null;
+  worstDay: IWeeklyReportDay | null;
+  dailyStats: IWeeklyReportDay[];
+  trends: {
+    improving: boolean;
+    declining: boolean;
+    stable: boolean;
+  };
+}
+
+interface IPlatformStats {
+  totalUsers: number;
+  totalTasks: number;
+  totalCompletedTasks: number;
+  totalMinutes: number;
+  totalChains: number;
+  totalBrokenChains: number;
+  averageSuccessRate: number;
+}
+
+const dailyStatsSchema = new Schema<IDailyStats, IDailyStatsModel, IDailyStatsMethods>(
+  {
+    userId: { type: Number, required: true, index: true },
+    date: { type: Date, required: true },
+    stats: {
+      tasksStarted: { type: Number, default: 0 },
+      tasksCompleted: { type: Number, default: 0 },
+      tasksFailed: { type: Number, default: 0 },
+      totalMinutes: { type: Number, default: 0 },
+      averageTaskDuration: { type: Number, default: 0 },
+      longestTask: { type: Number, default: 0 },
+      shortestTask: { type: Number, default: Number.MAX_VALUE },
+      successRate: { type: Number, default: 0 },
+      chainsCreated: { type: Number, default: 0 },
+      chainsBroken: { type: Number, default: 0 },
+      longestChain: { type: Number, default: 0 }
+    },
+    patterns: [
+      {
+        patternId: String,
+        executedAt: Date,
+        success: Boolean
+      }
+    ],
+    metadata: {
+      firstTaskAt: Date,
+      lastTaskAt: Date,
+      mostProductiveHour: Number,
+      interruptions: { type: Number, default: 0 },
+      peakPerformanceHours: [Number],
+      lowPerformanceHours: [Number]
+    }
   },
-  patterns: [{ // 执行的定式ID列表
-    patternId: String,
-    executedAt: Date,
-    success: Boolean
-  }],
-  metadata: {
-    firstTaskAt: Date,
-    lastTaskAt: Date,
-    mostProductiveHour: Number, // 0-23
-    interruptions: { type: Number, default: 0 },
-    peakPerformanceHours: [Number], // 高效时段
-    lowPerformanceHours: [Number] // 低效时段
+  {
+    timestamps: true
   }
-}, {
-  timestamps: true
-});
+);
 
-// 虚拟字段：效率分数（基于完成率和平均时长）
-dailyStatsSchema.virtual('efficiencyScore').get(function getEfficiencyScore() {
-  if (this.stats.tasksStarted === 0) return 0;
+dailyStatsSchema.virtual('efficiencyScore').get(function getEfficiencyScore(this: DailyStatsDocument) {
+  if (this.stats.tasksStarted === 0) {
+    return 0;
+  }
 
   const completionRate = this.stats.tasksCompleted / this.stats.tasksStarted;
-  const averageRate = this.stats.averageTaskDuration > 0 ? Math.min(this.stats.averageTaskDuration / 25, 2) : 1;
+  const averageRate =
+    this.stats.averageTaskDuration > 0 ? Math.min(this.stats.averageTaskDuration / 25, 2) : 1;
 
   return Math.round(completionRate * averageRate * 100);
 });
 
-// 虚拟字段：专注等级
-dailyStatsSchema.virtual('focusLevel').get(function getFocusLevel() {
+dailyStatsSchema.virtual('focusLevel').get(function getFocusLevel(this: DailyStatsDocument) {
   const minutes = this.stats.totalMinutes;
+
   if (minutes < 30) return { level: 1, name: '起步' };
   if (minutes < 90) return { level: 2, name: '进步' };
   if (minutes < 180) return { level: 3, name: '专注' };
   if (minutes < 300) return { level: 4, name: '卓越' };
+
   return { level: 5, name: '传奇' };
 });
 
-// 实例方法：添加任务统计
-dailyStatsSchema.methods.addTaskStats = function addTaskStats(task, success) {
+dailyStatsSchema.methods.addTaskStats = function addTaskStats(
+  this: DailyStatsDocument,
+  task: Pick<ITask, 'duration'> & Partial<ITask>,
+  success: boolean
+) {
   this.stats.tasksStarted += 1;
 
   if (success) {
-    this.stats.tasksCompleted += 1;
-    this.stats.totalMinutes += task.actualDuration || task.duration;
-
-    // 更新最长和最短任务时长
     const duration = task.actualDuration || task.duration;
+    this.stats.tasksCompleted += 1;
+    this.stats.totalMinutes += duration;
     this.stats.longestTask = Math.max(this.stats.longestTask, duration);
+
     if (this.stats.shortestTask === Number.MAX_VALUE) {
       this.stats.shortestTask = duration;
     } else {
@@ -73,62 +123,60 @@ dailyStatsSchema.methods.addTaskStats = function addTaskStats(task, success) {
     this.stats.tasksFailed += 1;
   }
 
-  // 更新成功率
-  this.stats.successRate = (this.stats.tasksCompleted / this.stats.tasksStarted * 100);
+  this.stats.successRate = (this.stats.tasksCompleted / this.stats.tasksStarted) * 100;
 
-  // 更新平均时长
   if (this.stats.tasksCompleted > 0) {
     this.stats.averageTaskDuration = this.stats.totalMinutes / this.stats.tasksCompleted;
   }
 
-  // 更新时间信息
   const taskTime = task.startTime || new Date();
   if (!this.metadata.firstTaskAt) {
     this.metadata.firstTaskAt = taskTime;
   }
   this.metadata.lastTaskAt = taskTime;
 
-  // 更新最高效时段
-  const hour = taskTime.getHours();
-  this.updateProductivityHours(hour, success);
+  this.updateProductivityHours(taskTime.getHours(), success);
 
   return this;
 };
 
-// 实例方法：更新生产力时段
-dailyStatsSchema.methods.updateProductivityHours = function updateProductivityHours(hour, success) {
+dailyStatsSchema.methods.updateProductivityHours = function updateProductivityHours(
+  this: DailyStatsDocument,
+  hour: number,
+  success: boolean
+) {
   if (!this.metadata.peakPerformanceHours) {
     this.metadata.peakPerformanceHours = [];
   }
+
   if (!this.metadata.lowPerformanceHours) {
     this.metadata.lowPerformanceHours = [];
   }
 
   if (success) {
-    // 添加到高效时段
     if (!this.metadata.peakPerformanceHours.includes(hour)) {
       this.metadata.peakPerformanceHours.push(hour);
     }
-    // 从低效时段移除
+
     const lowIndex = this.metadata.lowPerformanceHours.indexOf(hour);
     if (lowIndex > -1) {
       this.metadata.lowPerformanceHours.splice(lowIndex, 1);
     }
-  } else {
-    // 添加到低效时段
-    if (!this.metadata.lowPerformanceHours.includes(hour)) {
-      this.metadata.lowPerformanceHours.push(hour);
-    }
+  } else if (!this.metadata.lowPerformanceHours.includes(hour)) {
+    this.metadata.lowPerformanceHours.push(hour);
   }
 
-  // 更新最高效时段（使用众数）
   if (this.metadata.peakPerformanceHours.length > 0) {
-    this.metadata.mostProductiveHour = this.metadata.peakPerformanceHours[0]; // 简化实现
+    this.metadata.mostProductiveHour = this.metadata.peakPerformanceHours[0];
   }
 };
 
-// 实例方法：添加链条统计
-dailyStatsSchema.methods.addChainStats = function addChainStats(chainCreated = false, chainBroken = false, chainLength = 0) {
+dailyStatsSchema.methods.addChainStats = function addChainStats(
+  this: DailyStatsDocument,
+  chainCreated = false,
+  chainBroken = false,
+  chainLength = 0
+) {
   if (chainCreated) {
     this.stats.chainsCreated += 1;
   }
@@ -144,8 +192,11 @@ dailyStatsSchema.methods.addChainStats = function addChainStats(chainCreated = f
   return this;
 };
 
-// 实例方法：添加定式执行记录
-dailyStatsSchema.methods.addPatternExecution = function addPatternExecution(patternId, success = true) {
+dailyStatsSchema.methods.addPatternExecution = function addPatternExecution(
+  this: DailyStatsDocument,
+  patternId: string,
+  success = true
+) {
   this.patterns.push({
     patternId,
     executedAt: new Date(),
@@ -155,16 +206,16 @@ dailyStatsSchema.methods.addPatternExecution = function addPatternExecution(patt
   return this;
 };
 
-// 实例方法：添加中断记录
-dailyStatsSchema.methods.addInterruption = function addInterruption() {
+dailyStatsSchema.methods.addInterruption = function addInterruption(this: DailyStatsDocument) {
   this.metadata.interruptions = (this.metadata.interruptions || 0) + 1;
   return this;
 };
 
-// 实例方法：获取统计摘要
-dailyStatsSchema.methods.getSummary = function getSummary() {
+dailyStatsSchema.methods.getSummary = function getSummary(this: DailyStatsDocument): IDailySummary {
+  const dateString = this.date.toISOString().split('T')[0] ?? '';
+
   return {
-    date: this.date.toISOString().split('T')[0],
+    date: dateString,
     tasks: {
       started: this.stats.tasksStarted,
       completed: this.stats.tasksCompleted,
@@ -184,19 +235,22 @@ dailyStatsSchema.methods.getSummary = function getSummary() {
     },
     patterns: {
       executed: this.patterns.length,
-      successful: this.patterns.filter((p) => p.success).length
+      successful: this.patterns.filter((pattern) => pattern.success).length
     },
     performance: {
-      efficiencyScore: this.efficiencyScore,
-      focusLevel: this.focusLevel,
+      efficiencyScore: this.efficiencyScore ?? 0,
+      focusLevel: this.focusLevel ?? { level: 1, name: '起步' },
       mostProductiveHour: this.metadata.mostProductiveHour,
       interruptions: this.metadata.interruptions
     }
   };
 };
 
-// 静态方法：获取或创建每日统计
-dailyStatsSchema.statics.findOrCreateDaily = async function findOrCreateDaily(userId, date = new Date()) {
+dailyStatsSchema.statics.findOrCreateDaily = async function findOrCreateDaily(
+  this: IDailyStatsModel,
+  userId: number,
+  date = new Date()
+) {
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
 
@@ -234,10 +288,14 @@ dailyStatsSchema.statics.findOrCreateDaily = async function findOrCreateDaily(us
   return dailyStats;
 };
 
-// 静态方法：获取用户一段时间的统计
-dailyStatsSchema.statics.getUserPeriodStats = async function getUserPeriodStats(userId, days = 7) {
+dailyStatsSchema.statics.getUserPeriodStats = async function getUserPeriodStats(
+  this: IDailyStatsModel,
+  userId: number,
+  days = 7
+) {
   const endDate = new Date();
   const startDate = new Date();
+
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
   endDate.setHours(23, 59, 59, 999);
@@ -248,11 +306,13 @@ dailyStatsSchema.statics.getUserPeriodStats = async function getUserPeriodStats(
   }).sort({ date: -1 });
 };
 
-// 静态方法：获取用户周报数据
-dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyReport(userId) {
+dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyReport(
+  this: IDailyStatsModel,
+  userId: number
+): Promise<IWeeklyReportSummary> {
   const weeklyStats = await this.getUserPeriodStats(userId, 7);
 
-  const summary = {
+  const summary: IWeeklyReportSummary = {
     totalTasks: 0,
     totalCompletedTasks: 0,
     totalMinutes: 0,
@@ -271,12 +331,10 @@ dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyRep
     return summary;
   }
 
-  // 计算总计
   weeklyStats.forEach((dayStats) => {
     summary.totalTasks += dayStats.stats.tasksStarted;
     summary.totalCompletedTasks += dayStats.stats.tasksCompleted;
     summary.totalMinutes += dayStats.stats.totalMinutes;
-
     summary.dailyStats.push({
       date: dayStats.date,
       completed: dayStats.stats.tasksCompleted,
@@ -285,13 +343,11 @@ dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyRep
     });
   });
 
-  // 计算平均值
-  summary.averageSuccessRate = summary.totalTasks > 0
-    ? (summary.totalCompletedTasks / summary.totalTasks * 100) : 0;
+  summary.averageSuccessRate =
+    summary.totalTasks > 0 ? (summary.totalCompletedTasks / summary.totalTasks) * 100 : 0;
 
-  // 找出最佳和最差的一天
   let bestScore = -1;
-  let worstScore = Infinity;
+  let worstScore = Number.POSITIVE_INFINITY;
 
   weeklyStats.forEach((dayStats) => {
     const score = dayStats.stats.tasksCompleted + dayStats.stats.totalMinutes / 60;
@@ -306,7 +362,7 @@ dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyRep
       };
     }
 
-    if (score < worstScore && score > 0) { // 排除没有活动的天
+    if (score < worstScore && score > 0) {
       worstScore = score;
       summary.worstDay = {
         date: dayStats.date,
@@ -317,11 +373,9 @@ dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyRep
     }
   });
 
-  // 分析趋势
   if (weeklyStats.length >= 3) {
     const recent = weeklyStats.slice(0, 3);
     const earlier = weeklyStats.slice(-3);
-
     const recentAvg = recent.reduce((sum, day) => sum + day.stats.tasksCompleted, 0) / recent.length;
     const earlierAvg = earlier.reduce((sum, day) => sum + day.stats.tasksCompleted, 0) / earlier.length;
 
@@ -337,14 +391,17 @@ dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyRep
   return summary;
 };
 
-// 静态方法：获取平台统计
-dailyStatsSchema.statics.getPlatformStats = async function getPlatformStats(date = new Date()) {
+dailyStatsSchema.statics.getPlatformStats = async function getPlatformStats(
+  this: IDailyStatsModel,
+  date = new Date()
+): Promise<IPlatformStats> {
   const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(date);
+
+  startOfDay.setHours(0, 0, 0, 0);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const stats = await this.aggregate([
+  const stats = await this.aggregate<IPlatformStats>([
     {
       $match: {
         date: { $gte: startOfDay, $lte: endOfDay }
@@ -364,37 +421,36 @@ dailyStatsSchema.statics.getPlatformStats = async function getPlatformStats(date
     }
   ]);
 
-  return stats[0] || {
-    totalUsers: 0,
-    totalTasks: 0,
-    totalCompletedTasks: 0,
-    totalMinutes: 0,
-    totalChains: 0,
-    totalBrokenChains: 0,
-    averageSuccessRate: 0
-  };
+  return (
+    stats[0] || {
+      totalUsers: 0,
+      totalTasks: 0,
+      totalCompletedTasks: 0,
+      totalMinutes: 0,
+      totalChains: 0,
+      totalBrokenChains: 0,
+      averageSuccessRate: 0
+    }
+  );
 };
 
-// 复合索引：用户+日期唯一
 dailyStatsSchema.index({ userId: 1, date: 1 }, { unique: true });
-dailyStatsSchema.index({ date: 1 }); // 全平台统计查询
-dailyStatsSchema.index({ 'stats.successRate': -1 }); // 排行榜
-dailyStatsSchema.index({ 'stats.totalMinutes': -1 }); // 专注时长排行
-dailyStatsSchema.index({ 'stats.tasksCompleted': -1 }); // 完成任务排行
+dailyStatsSchema.index({ date: 1 });
+dailyStatsSchema.index({ 'stats.successRate': -1 });
+dailyStatsSchema.index({ 'stats.totalMinutes': -1 });
+dailyStatsSchema.index({ 'stats.tasksCompleted': -1 });
 
-// 中间件：保存前验证数据一致性
-dailyStatsSchema.pre('save', function preSave(next) {
-  // 确保成功率在0-100之间
+dailyStatsSchema.pre('save', function preSave(
+  this: DailyStatsDocument,
+  next: CallbackWithoutResultAndOptionalError
+) {
   if (this.stats.successRate < 0) this.stats.successRate = 0;
   if (this.stats.successRate > 100) this.stats.successRate = 100;
-
-  // 确保统计数据不为负数
   if (this.stats.tasksStarted < 0) this.stats.tasksStarted = 0;
   if (this.stats.tasksCompleted < 0) this.stats.tasksCompleted = 0;
   if (this.stats.tasksFailed < 0) this.stats.tasksFailed = 0;
   if (this.stats.totalMinutes < 0) this.stats.totalMinutes = 0;
 
-  // 重置短任务时长的无效值
   if (this.stats.shortestTask === Number.MAX_VALUE && this.stats.tasksCompleted === 0) {
     this.stats.shortestTask = 0;
   }
@@ -402,12 +458,12 @@ dailyStatsSchema.pre('save', function preSave(next) {
   next();
 });
 
-// 中间件：更新时记录日志
-dailyStatsSchema.post('save', (doc) => {
-  const dateStr = doc.date.toISOString().split('T')[0];
+dailyStatsSchema.post('save', (doc: DailyStatsDocument) => {
+  const dateStr = doc.date.toISOString().split('T')[0] ?? '';
   console.log(`📊 每日统计更新: 用户 ${doc.userId}, 日期 ${dateStr}, 完成 ${doc.stats.tasksCompleted} 个任务`);
 });
 
-const DailyStats = mongoose.model('DailyStats', dailyStatsSchema);
+const DailyStats = mongoose.model<IDailyStats, IDailyStatsModel>('DailyStats', dailyStatsSchema);
 
+export type { DailyStatsDocument, IDailyStats, IDailyStatsMethods, IDailyStatsModel } from '../types/models.js';
 export default DailyStats;
