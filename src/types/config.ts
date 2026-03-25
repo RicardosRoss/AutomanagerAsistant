@@ -14,10 +14,14 @@ export interface AppConfig {
     environment: string;
     port: number;
     debug: boolean;
+    baseUrl?: string;
+    supportEmail?: string;
+    githubRepo?: string;
   };
   telegram: {
     token?: string;
     webhookUrl?: string;
+    webhookCert?: string;
     polling: boolean;
     mockApi: boolean;
   };
@@ -101,5 +105,10 @@ export interface AppConfig {
     timeout: number;
     mockExternalServices: boolean;
     resetDbBetweenTests: boolean;
+  };
+  api?: {
+    rateLimit?: {
+      perMinute?: number;
+    };
   };
 }
