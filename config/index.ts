@@ -1,4 +1,5 @@
 import { config as loadEnv } from 'dotenv';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig, DeepPartial } from '../src/types/config.js';
@@ -6,12 +7,20 @@ import type { AppConfig, DeepPartial } from '../src/types/config.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const environment = process.env.NODE_ENV ?? 'development';
+const envFileName = environment === 'test' ? '.env.test' : '.env';
 
-if (environment === 'test') {
-  loadEnv({ path: path.resolve(__dirname, '../.env.test') });
-} else {
-  loadEnv({ path: path.resolve(__dirname, '../.env') });
+export function resolveEnvFilePath(moduleDirectory: string, fileName = envFileName): string {
+  const candidatePaths = [
+    path.resolve(moduleDirectory, `../${fileName}`),
+    path.resolve(moduleDirectory, `../../${fileName}`),
+    path.resolve(moduleDirectory, `../../../${fileName}`)
+  ];
+  const defaultPath = candidatePaths[0] ?? path.resolve(moduleDirectory, `../${fileName}`);
+
+  return candidatePaths.find((candidatePath) => fs.existsSync(candidatePath)) ?? defaultPath;
 }
+
+loadEnv({ path: resolveEnvFilePath(__dirname) });
 
 const environmentLoaders: Record<string, () => Promise<{ default: DeepPartial<AppConfig> }>> = {
   production: async () => import('./production.js')
