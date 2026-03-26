@@ -1,14 +1,22 @@
-import express from 'express';
+import type { Server } from 'node:http';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import SelfControlBot from './bot.js';
 import databaseConnection from './database/connection.js';
 import redisConnection from './config/redis.js';
 import config from '../config/index.js';
 import logger from './utils/logger.js';
 
-/**
- * 自控力助手应用主入口
- */
 class SelfControlApp {
+  app: express.Express;
+
+  bot: SelfControlBot | null;
+
+  db: typeof databaseConnection;
+
+  redis: typeof redisConnection;
+
+  server: Server | null;
+
   constructor() {
     this.app = express();
     this.bot = null;
@@ -17,10 +25,7 @@ class SelfControlApp {
     this.server = null;
   }
 
-  /**
-   * 初始化应用
-   */
-  async initialize() {
+  async initialize(): Promise<void> {
     try {
       logger.info('🚀 初始化自控力助手应用', {
         version: config.app.version,
@@ -28,22 +33,11 @@ class SelfControlApp {
         nodeVersion: process.version
       });
 
-      // 1. 连接数据库
       await this.connectDatabase();
-
-      // 2. 连接Redis
       await this.connectRedis();
-
-      // 3. 设置Express应用
       await this.setupExpress();
-
-      // 4. 初始化并启动Bot
       await this.startBot();
-
-      // 5. 启动HTTP服务器
       await this.startServer();
-
-      // 6. 设置优雅关闭
       this.setupGracefulShutdown();
 
       logger.info('✅ 自控力助手启动完成', {
@@ -53,47 +47,40 @@ class SelfControlApp {
         redisStatus: 'connected'
       });
     } catch (error) {
-      logger.error('应用初始化失败', { error: error.message, stack: error.stack });
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      logger.error('应用初始化失败', { error: message, stack });
       await this.shutdown(1);
     }
   }
 
-  /**
-   * 连接数据库
-   */
-  async connectDatabase() {
+  async connectDatabase(): Promise<void> {
     try {
       await this.db.connect();
       logger.info('✅ 数据库连接成功');
     } catch (error) {
-      logger.error('数据库连接失败', { error: error.message });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('数据库连接失败', { error: message });
       throw error;
     }
   }
 
-  /**
-   * 连接Redis
-   */
-  async connectRedis() {
+  async connectRedis(): Promise<void> {
     try {
       await this.redis.connect();
       logger.info('✅ Redis连接成功');
     } catch (error) {
-      logger.error('Redis连接失败', { error: error.message });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Redis连接失败', { error: message });
       throw error;
     }
   }
 
-  /**
-   * 设置Express应用
-   */
-  async setupExpress() {
-    // 基础中间件
+  async setupExpress(): Promise<void> {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
 
-    // 健康检查端点
-    this.app.get('/health', (req, res) => {
+    this.app.get('/health', (_req, res) => {
       res.json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
@@ -101,13 +88,12 @@ class SelfControlApp {
         environment: config.app.environment,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        database: this.db.isConnected() ? 'connected' : 'disconnected',
+        database: this.db.isConnected ? 'connected' : 'disconnected',
         redis: this.redis.isConnected ? 'connected' : 'disconnected'
       });
     });
 
-    // API信息端点
-    this.app.get('/api/info', (req, res) => {
+    this.app.get('/api/info', (_req, res) => {
       res.json({
         name: 'Telegram自控力助手API',
         version: config.app.version,
@@ -117,8 +103,7 @@ class SelfControlApp {
       });
     });
 
-    // 错误处理中间件
-    this.app.use((error, req, res, _next) => {
+    this.app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
       logger.error('Express错误', {
         error: error.message,
         stack: error.stack,
@@ -133,7 +118,6 @@ class SelfControlApp {
       });
     });
 
-    // 404处理
     this.app.use('*', (req, res) => {
       res.status(404).json({
         error: '端点不存在',
@@ -146,26 +130,21 @@ class SelfControlApp {
     logger.info('✅ Express应用配置完成');
   }
 
-  /**
-   * 启动Bot
-   */
-  async startBot() {
+  async startBot(): Promise<void> {
     try {
       this.bot = new SelfControlBot();
       await this.bot.start();
       logger.info('✅ Telegram Bot启动成功');
     } catch (error) {
-      logger.error('Bot启动失败', { error: error.message });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('Bot启动失败', { error: message });
       throw error;
     }
   }
 
-  /**
-   * 启动HTTP服务器
-   */
-  async startServer() {
-    return new Promise((resolve, reject) => {
-      this.server = this.app.listen(config.app.port, (error) => {
+  async startServer(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      this.server = this.app.listen(config.app.port, (error?: Error) => {
         if (error) {
           logger.error('HTTP服务器启动失败', { error: error.message });
           reject(error);
@@ -177,61 +156,52 @@ class SelfControlApp {
     });
   }
 
-  /**
-   * 设置优雅关闭
-   */
-  setupGracefulShutdown() {
-    // 处理终止信号
-    const signals = ['SIGTERM', 'SIGINT', 'SIGUSR2'];
+  setupGracefulShutdown(): void {
+    const signals = ['SIGTERM', 'SIGINT', 'SIGUSR2'] as const;
 
     signals.forEach((signal) => {
       process.on(signal, () => {
         logger.info(`收到 ${signal} 信号，开始优雅关闭`);
-        this.shutdown(0);
+        void this.shutdown(0);
       });
     });
 
-    // 处理未捕获的异常
     process.on('uncaughtException', (error) => {
       logger.error('未捕获的异常', {
         error: error.message,
         stack: error.stack
       });
-      this.shutdown(1);
+      void this.shutdown(1);
     });
 
-    // 处理未处理的Promise拒绝
     process.on('unhandledRejection', (reason, promise) => {
+      const reasonMessage = reason instanceof Error ? reason.message : String(reason);
       logger.error('未处理的Promise拒绝', {
-        reason: reason?.message || reason,
+        reason: reasonMessage,
         promise: promise?.toString()
       });
-      this.shutdown(1);
+      void this.shutdown(1);
     });
   }
 
-  /**
-   * 优雅关闭应用
-   */
-  async shutdown(exitCode = 0) {
+  async shutdown(exitCode = 0): Promise<void> {
     logger.info('开始关闭应用服务');
 
-    const shutdownPromises = [];
+    const shutdownPromises: Promise<unknown>[] = [];
 
-    // 关闭Bot
     if (this.bot) {
       shutdownPromises.push(
-        this.bot.stop().catch((error) => {
-          logger.error('关闭Bot失败', { error: error.message });
+        this.bot.stop().catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.error('关闭Bot失败', { error: message });
         })
       );
     }
 
-    // 关闭HTTP服务器
     if (this.server) {
       shutdownPromises.push(
-        new Promise((resolve) => {
-          this.server.close((error) => {
+        new Promise<void>((resolve) => {
+          this.server?.close((error?: Error) => {
             if (error) {
               logger.error('关闭HTTP服务器失败', { error: error.message });
             } else {
@@ -243,40 +213,32 @@ class SelfControlApp {
       );
     }
 
-    // 关闭数据库连接
-    if (this.db) {
-      shutdownPromises.push(
-        this.db.disconnect().catch((error) => {
-          logger.error('关闭数据库连接失败', { error: error.message });
-        })
-      );
-    }
+    shutdownPromises.push(
+      this.db.disconnect().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('关闭数据库连接失败', { error: message });
+      })
+    );
 
-    // 关闭Redis连接
-    if (this.redis) {
-      shutdownPromises.push(
-        this.redis.disconnect().catch((error) => {
-          logger.error('关闭Redis连接失败', { error: error.message });
-        })
-      );
-    }
+    shutdownPromises.push(
+      this.redis.disconnect().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('关闭Redis连接失败', { error: message });
+      })
+    );
 
-    // 等待所有关闭操作完成
     try {
       await Promise.allSettled(shutdownPromises);
       logger.info('应用已优雅关闭');
     } catch (error) {
-      logger.error('关闭过程中发生错误', { error: error.message });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('关闭过程中发生错误', { error: message });
     }
 
-    // 强制退出
     process.exit(exitCode);
   }
 
-  /**
-   * 获取应用状态
-   */
-  getStatus() {
+  getStatus(): Record<string, unknown> {
     return {
       app: {
         version: config.app.version,
@@ -285,13 +247,13 @@ class SelfControlApp {
         memory: process.memoryUsage()
       },
       database: {
-        connected: this.db.isConnected(),
-        connectionString: this.db.getConnectionString()
+        connected: this.db.isConnected,
+        state: this.db.getConnectionState()
       },
       redis: {
         connected: this.redis.isConnected,
-        host: this.redis.host,
-        port: this.redis.port
+        host: config.redis.host,
+        port: config.redis.port
       },
       bot: {
         running: this.bot?.isRunning || false
@@ -300,13 +262,12 @@ class SelfControlApp {
   }
 }
 
-// 创建应用实例
 const app = new SelfControlApp();
 
-// 启动应用
 if (import.meta.url === `file://${process.argv[1]}`) {
-  app.initialize().catch((error) => {
-    logger.error('应用启动失败', { error: error.message });
+  app.initialize().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('应用启动失败', { error: message });
     process.exit(1);
   });
 }
