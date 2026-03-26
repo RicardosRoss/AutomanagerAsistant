@@ -1,6 +1,7 @@
 import type TelegramBot from 'node-telegram-bot-api';
 import type BotConfig from '../config/bot.js';
 import type TaskService from '../services/TaskService.js';
+import User from '../models/User.js';
 
 type ErrorReporter = (userId: number, message: string) => Promise<void>;
 
@@ -27,7 +28,14 @@ class CoreCommandHandlers {
     this.onError = onError;
   }
 
-  async handleStartCommand(userId: number, _userInfo: TelegramBot.User): Promise<void> {
+  async handleStartCommand(userId: number, userInfo: TelegramBot.User): Promise<void> {
+    await User.findOrCreate({
+      userId,
+      username: userInfo.username,
+      firstName: userInfo.first_name,
+      lastName: userInfo.last_name
+    });
+
     const botInfo = this.config.getBotInfo();
     const welcomeMessage = `🧙‍♂️ **欢迎踏入修仙之路！**
 

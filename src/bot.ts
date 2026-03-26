@@ -266,11 +266,60 @@ class SelfControlBot {
       }
     } catch (error) {
       logger.logError(error, { userId, callbackData: data, command: 'callback_query' });
-      await this.getBot().answerCallbackQuery(callbackQuery.id, {
-        text: '操作失败，请稍后重试',
-        show_alert: true
-      });
+
+      if (this.isExpiredCallbackQueryError(error)) {
+        logger.warn('忽略过期的 callback query', { userId, callbackData: data });
+        return;
+      }
+
+      try {
+        await this.getBot().answerCallbackQuery(callbackQuery.id, {
+          text: '操作失败，请稍后重试',
+          show_alert: true
+        });
+      } catch (callbackError) {
+        if (this.isExpiredCallbackQueryError(callbackError)) {
+          logger.warn('callback query 错误提示已过期，跳过响应', {
+            userId,
+            callbackData: data
+          });
+          return;
+        }
+
+        logger.logError(callbackError, {
+          userId,
+          callbackData: data,
+          command: 'callback_query_error_response'
+        });
+      }
     }
+  }
+
+  isExpiredCallbackQueryError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return (
+      error.message.includes('query is too old') ||
+      error.message.includes('query ID is invalid') ||
+      error.message.includes('response timeout expired')
+    );
+  }
+
+  isTransientPollingError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const message = error.message.toLowerCase();
+
+    return (
+      message.includes('econnreset') ||
+      message.includes('etimedout') ||
+      message.includes('esockettimedout') ||
+      message.includes('eai_again')
+    );
   }
 
   async handleQuickCallback(userId: number, data: string): Promise<void> {
@@ -339,6 +388,14 @@ class SelfControlBot {
 
   async handleError(error: Error & { code?: string }): Promise<void> {
     logger.logError(error, { source: 'bot_error_handler' });
+
+    if (this.isTransientPollingError(error)) {
+      logger.warn('忽略瞬时 polling 网络错误，等待下一轮重试', {
+        error: error.message,
+        code: error.code
+      });
+      return;
+    }
 
     if (error.code === 'EFATAL') {
       logger.error('Bot遇到致命错误，需要重启', { error: error.message });
