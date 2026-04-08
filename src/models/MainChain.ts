@@ -40,24 +40,24 @@ const mainChainSchema = new Schema<IMainChain, IMainChainModel>(
   }
 );
 
+// Partial unique index: only one active chain per user
+mainChainSchema.index(
+  { userId: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' } }
+);
+
 mainChainSchema.statics.findOrCreateActive = async function findOrCreateActive(
   this: IMainChainModel,
   userId: number,
   markerLabel: string
 ): Promise<MainChainDocument> {
-  const existing = await this.findOne({ userId, status: 'active' });
-  if (existing) {
-    return existing;
-  }
-
   const chainId = generateId('mc');
-  return this.create({
-    userId,
-    chainId,
-    sacredMarker: { type: 'seat', label: markerLabel },
-    nodes: [],
-    status: 'active'
-  });
+  const doc = await this.findOneAndUpdate(
+    { userId, status: 'active' },
+    { $setOnInsert: { chainId, sacredMarker: { type: 'seat' as const, label: markerLabel }, nodes: [] } },
+    { upsert: true, new: true }
+  );
+  return doc;
 };
 
 const MainChain = mongoose.model<IMainChain, IMainChainModel>('MainChain', mainChainSchema);

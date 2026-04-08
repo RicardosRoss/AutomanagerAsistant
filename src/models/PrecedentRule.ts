@@ -22,14 +22,12 @@ const precedentRuleSchema = new Schema<IPrecedentRule, IPrecedentRuleModel>(
       required: true
     },
     decision: { type: String, enum: ['allow_forever'], required: true },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: () => new Date() }
   },
-  {
-    timestamps: false
-  }
+  {}
 );
 
-precedentRuleSchema.index({ userId: 1, 'scope.behaviorKey': 1 }, { unique: true });
+precedentRuleSchema.index({ userId: 1, 'scope.behaviorKey': 1, 'scope.chainType': 1 }, { unique: true });
 
 const PrecedentRule = mongoose.model<IPrecedentRule, IPrecedentRuleModel>(
   'PrecedentRule',
