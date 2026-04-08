@@ -6,6 +6,7 @@ import {
 } from '../utils/constants.js';
 import type QueueService from '../services/QueueService.js';
 import type TaskService from '../services/TaskService.js';
+import type CTDPService from '../services/CTDPService.js';
 
 type ErrorReporter = (userId: number, message: string) => Promise<void>;
 
@@ -13,6 +14,7 @@ interface TaskCommandDependencies {
   bot: TelegramBot;
   taskService: TaskService;
   queueService: QueueService;
+  ctdpService?: CTDPService;
   onError: ErrorReporter;
 }
 
@@ -23,12 +25,15 @@ class TaskCommandHandlers {
 
   queueService: QueueService;
 
+  ctdpService: CTDPService | null;
+
   onError: ErrorReporter;
 
-  constructor({ bot, taskService, queueService, onError }: TaskCommandDependencies) {
+  constructor({ bot, taskService, queueService, ctdpService, onError }: TaskCommandDependencies) {
     this.bot = bot;
     this.taskService = taskService;
     this.queueService = queueService;
+    this.ctdpService = ctdpService ?? null;
     this.onError = onError;
   }
 
@@ -91,6 +96,11 @@ class TaskCommandHandlers {
       const reservationId = `res_${Date.now()}_${userId}`;
 
       await this.queueService.scheduleReservation(userId, reservationId, description, duration);
+
+      // Record the reservation in AuxChain via CTDPService
+      if (this.ctdpService) {
+        await this.ctdpService.createReservation(userId, description, duration, reservationId);
+      }
 
       await this.bot.sendMessage(
         userId,
@@ -196,16 +206,79 @@ class TaskCommandHandlers {
     const reservationId = data.replace(CALLBACK_PREFIXES.START_RESERVED, '');
 
     try {
-      await this.bot.sendMessage(
-        userId,
-        '🚀 **预约任务启动**\n\n'
+      if (this.ctdpService) {
+        // CTDP flow: actually create a main chain task bound to the reservation
+        const result = await this.ctdpService.startReservedTask(userId, reservationId);
+
+        const message =
+          '🚀 **预约任务启动**\n\n'
           + '根据线性时延原理，您的启动阻力已降低60%！\n'
           + '现在是开始专注的绝佳时机。\n\n'
-          + '使用 `/task` 命令创建具体任务。',
-        { parse_mode: 'Markdown' }
-      );
+          + `📋 任务：${result.task.description}\n`
+          + `⏱ 时长：${result.task.duration}分钟`;
 
-      logger.logTaskAction(userId, reservationId, 'reservation_started');
+        await this.bot.sendMessage(userId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ 完成任务', callback_data: `${CALLBACK_PREFIXES.COMPLETE_TASK}${result.task.taskId}` },
+              { text: '❌ 放弃任务', callback_data: `${CALLBACK_PREFIXES.FAIL_TASK}${result.task.taskId}` }]
+            ]
+          }
+        });
+
+        logger.logTaskAction(userId, result.task.taskId, 'reservation_started', {
+          reservationId,
+          chainId: result.mainChain.chainId
+        });
+      } else {
+        // Fallback: no CTDPService — just send a prompt message
+        await this.bot.sendMessage(
+          userId,
+          '🚀 **预约任务启动**\n\n'
+            + '根据线性时延原理，您的启动阻力已降低60%！\n'
+            + '现在是开始专注的绝佳时机。\n\n'
+            + '使用 `/task` 命令创建具体任务。',
+          { parse_mode: 'Markdown' }
+        );
+
+        logger.logTaskAction(userId, reservationId, 'reservation_started');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.onError(userId, message);
+    }
+  }
+
+  async handleDelayReservationCallback(userId: number, data: string): Promise<void> {
+    // data format: delay_reservation_{reservationId}_{minutes}
+    const payload = data.replace(CALLBACK_PREFIXES.DELAY_RESERVATION, '');
+    const parts = payload.split('_');
+    const reservationId = parts[0];
+    const delayMinutes = Number.parseInt(parts[1] ?? '5', 10);
+
+    try {
+      if (this.ctdpService) {
+        const result = await this.ctdpService.delayReservation(userId, reservationId, delayMinutes);
+
+        await this.bot.sendMessage(
+          userId,
+          `⏰ 预约已延迟 ${delayMinutes} 分钟。\n\n`
+            + '新的预约时间即将到来，请注意通知。'
+        );
+
+        logger.logTaskAction(userId, reservationId, 'reservation_delayed', {
+          delayMinutes,
+          newJobId: result.newJobId
+        });
+      } else {
+        await this.bot.sendMessage(
+          userId,
+          `⏰ 预约已延迟 ${delayMinutes} 分钟。\n\n`
+            + '新的预约时间即将到来，请注意通知。'
+        );
+        logger.logTaskAction(userId, reservationId, 'reservation_delayed', { delayMinutes });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.onError(userId, message);

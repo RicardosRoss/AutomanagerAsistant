@@ -3,6 +3,7 @@ import BotConfig from './config/bot.js';
 import TaskService from './services/TaskService.js';
 import QueueService from './services/QueueService.js';
 import CultivationService from './services/CultivationService.js';
+import CTDPService from './services/CTDPService.js';
 import logger from './utils/logger.js';
 import { BOT_COMMANDS, CALLBACK_PREFIXES } from './utils/constants.js';
 import CultivationCommandHandlers from './handlers/cultivationCommands.js';
@@ -20,6 +21,8 @@ class SelfControlBot {
 
   taskService: TaskService;
 
+  ctdpService: CTDPService;
+
   cultivationHandlers: CultivationCommandHandlers | null;
 
   coreHandlers: CoreCommandHandlers | null;
@@ -34,6 +37,7 @@ class SelfControlBot {
     this.queueService = new QueueService();
     this.cultivationService = new CultivationService();
     this.taskService = new TaskService(this.queueService, this.cultivationService);
+    this.ctdpService = new CTDPService(this.taskService, this.queueService);
     this.cultivationHandlers = null;
     this.coreHandlers = null;
     this.taskHandlers = null;
@@ -88,6 +92,7 @@ class SelfControlBot {
       bot,
       taskService: this.taskService,
       queueService: this.queueService,
+      ctdpService: this.ctdpService,
       onError: this.sendErrorMessage.bind(this)
     });
 
@@ -261,6 +266,8 @@ class SelfControlBot {
         await this.getTaskHandlers().handleStartReservedCallback(userId, data);
       } else if (data.startsWith(CALLBACK_PREFIXES.CANCEL_RESERVATION)) {
         await this.getTaskHandlers().handleCancelReservationCallback(userId, data);
+      } else if (data.startsWith(CALLBACK_PREFIXES.DELAY_RESERVATION)) {
+        await this.getTaskHandlers().handleDelayReservationCallback(userId, data);
       } else {
         await this.handleQuickCallback(userId, data);
       }
