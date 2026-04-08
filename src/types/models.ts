@@ -359,3 +359,102 @@ export interface IDivinationHistoryModel
   getUserStats(userId: number): Promise<IDivinationHistoryStats>;
   getExtremeResults(userId: number, limit?: number): Promise<IDivinationHistoryExtremes>;
 }
+
+// ─── CTDP Models ─────────────────────────────────────────────────────────────
+
+// MainChain — tracks primary task chain with sacred markers and hierarchical nodes
+
+export type SacredMarkerType = 'seat' | 'object' | 'message' | 'custom';
+
+export interface ISacredMarker {
+  type: SacredMarkerType;
+  label: string;
+}
+
+export interface ILevelCounters {
+  unit: number;
+  group: number;
+  cluster: number;
+}
+
+export type NodeLevel = 'unit' | 'group' | 'cluster';
+export type NodeStatus = 'running' | 'completed' | 'failed';
+
+export interface IMainChainNode {
+  nodeNo: number;
+  level: NodeLevel;
+  taskId: string;
+  status: NodeStatus;
+}
+
+export interface IMainChain {
+  userId: number;
+  chainId: string;
+  sacredMarker: ISacredMarker;
+  levelCounters: ILevelCounters;
+  nodes: IMainChainNode[];
+  status: 'active' | 'broken';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type MainChainDocument = HydratedDocument<IMainChain>;
+
+export interface IMainChainModel extends Model<IMainChain> {
+  findOrCreateActive(userId: number, markerLabel: string): Promise<MainChainDocument>;
+}
+
+// AuxChain — tracks reservations and their fulfillment
+
+export type PendingReservationStatus = 'pending' | 'fulfilled' | 'expired' | 'cancelled';
+export type HistoryReservationStatus = 'fulfilled' | 'expired' | 'cancelled';
+
+export interface IPendingReservation {
+  reservationId?: string;
+  signal?: string;
+  createdAt?: Date;
+  deadlineAt?: Date;
+  status?: PendingReservationStatus;
+}
+
+export interface IReservationHistoryEntry {
+  reservationId?: string;
+  signal?: string;
+  createdAt?: Date;
+  fulfilledAt?: Date;
+  status: HistoryReservationStatus;
+}
+
+export interface IAuxChain {
+  userId: number;
+  chainId: string;
+  pendingReservation?: IPendingReservation;
+  reservationHistory: IReservationHistoryEntry[];
+  status: 'active' | 'inactive';
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type AuxChainDocument = HydratedDocument<IAuxChain>;
+
+export interface IAuxChainModel extends Model<IAuxChain> {}
+
+// PrecedentRule — "下必为例" permanent allow decisions
+
+export type PrecedentDecision = 'allow_forever';
+
+export interface IPrecedentRuleScope {
+  behaviorKey: string;
+  chainType: 'main' | 'aux';
+}
+
+export interface IPrecedentRule {
+  userId: number;
+  scope: IPrecedentRuleScope;
+  decision: PrecedentDecision;
+  createdAt?: Date;
+}
+
+export type PrecedentRuleDocument = HydratedDocument<IPrecedentRule>;
+
+export interface IPrecedentRuleModel extends Model<IPrecedentRule> {}
