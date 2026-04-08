@@ -106,7 +106,10 @@ class BotConfig {
       { command: 'status', description: '查看当前状态和进度' },
       { command: 'stats', description: '查看今日统计数据' },
       { command: 'week', description: '查看本周统计报告' },
-      { command: 'settings', description: '管理个人设置' }
+      { command: 'settings', description: '管理个人设置' },
+      { command: 'patterns', description: '查看 RSIP 定式树' },
+      { command: 'precedents', description: '查看下必为例判例' },
+      { command: 'reserve_status', description: '查看辅助链预约状态' }
     ];
   }
 

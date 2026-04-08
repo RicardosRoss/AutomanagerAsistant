@@ -128,6 +128,32 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
         statusMessage += `🎯 链条状态：${activeChain.status === 'active' ? '活跃' : '已中断'}\n`;
       }
 
+      // CTDP/RSIP status
+      try {
+        const { MainChain, AuxChain, PrecedentRule } = await import('../models/index.js');
+        const { default: PatternTree } = await import('../models/PatternTree.js');
+
+        const mainChain = await MainChain.findOne({ userId, status: 'active' });
+        const auxChain = await AuxChain.findOne({ userId, status: 'active' });
+        const precedentCount = await PrecedentRule.countDocuments({ userId });
+        const patternTree = await PatternTree.findOne({ userId });
+
+        statusMessage += '\n🧠 **CTDP 协议状态**\n';
+        if (mainChain) {
+          statusMessage += `⛓ 主链节点：${mainChain.nodes.length}\n`;
+          statusMessage += `🎯 主链状态：${mainChain.status === 'active' ? '活跃' : '已中断'}\n`;
+        }
+        if (auxChain?.pendingReservation) {
+          statusMessage += `⏰ 预约状态：${auxChain.pendingReservation.status}\n`;
+        } else {
+          statusMessage += '⏰ 预约状态：无预约\n';
+        }
+        statusMessage += `⚖️ 判例数：${precedentCount}\n`;
+        statusMessage += `🌲 定式树节点：${patternTree?.nodes.length ?? 0}\n`;
+      } catch {
+        // CTDP/RSIP data is optional, don't fail the whole status command
+      }
+
       await this.bot.sendMessage(userId, statusMessage, {
         parse_mode: 'Markdown',
         reply_markup: {
@@ -201,12 +227,11 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
     await this.bot.sendMessage(
       userId,
       '📅 **周报功能**\n\n'
-        + '此功能正在开发中，将在后续版本中提供：\n'
-        + '• 本周专注统计\n'
-        + '• 连击记录分析\n'
-        + '• 时间分布图表\n'
-        + '• 专注效率趋势\n\n'
-        + '敬请期待！🚀',
+        + '本周数据汇总功能正在开发中。\n'
+        + '当前可使用以下命令查看数据：\n\n'
+        + '• `/status` — 查看当前状态（含 CTDP/RSIP 数据）\n'
+        + '• `/stats` — 查看今日统计\n'
+        + '• `/patterns` — 查看 RSIP 定式树',
       { parse_mode: 'Markdown' }
     );
   }

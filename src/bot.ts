@@ -242,6 +242,15 @@ class SelfControlBot {
       case BOT_COMMANDS.SETTINGS:
         await this.getCoreHandlers().handleSettingsCommand(userId);
         break;
+      case BOT_COMMANDS.PATTERNS:
+        await this.handlePatternsCommand(userId);
+        break;
+      case BOT_COMMANDS.PRECEDENTS:
+        await this.handlePrecedentsCommand(userId);
+        break;
+      case BOT_COMMANDS.RESERVE_STATUS:
+        await this.handleReserveStatusCommand(userId);
+        break;
       default:
         await this.getBot().sendMessage(userId, '未知命令。使用 /help 查看可用命令列表。');
     }
@@ -391,6 +400,90 @@ class SelfControlBot {
     }
 
     return errorMap[errorMessage] || '操作失败，请稍后重试';
+  }
+
+  async handlePatternsCommand(userId: number): Promise<void> {
+    try {
+      const { RSIPService } = await import('./services/index.js');
+      const rsipService = new RSIPService();
+      const tree = await rsipService.getPatternTree(userId);
+
+      if (!tree || tree.nodes.length === 0) {
+        await this.getBot().sendMessage(userId, '🌲 您还没有创建任何定式。\n\n使用 `/patterns` 后面的子命令来管理 RSIP 定式树。');
+        return;
+      }
+
+      let message = '🌲 **RSIP 定式树**\n\n';
+      const rootNode = tree.nodes.find((n: { parentId: string | null }) => !n.parentId);
+      if (rootNode) {
+        message += `📌 根定式：${rootNode.title} (${rootNode.status})\n`;
+      }
+      message += `📊 总节点数：${tree.nodes.length}\n`;
+      message += `📅 今日新增限制：${tree.limits.maxNewPatternsPerDay} 个/天`;
+
+      await this.getBot().sendMessage(userId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.sendErrorMessage(userId, msg);
+    }
+  }
+
+  async handlePrecedentsCommand(userId: number): Promise<void> {
+    try {
+      const { PrecedentRule } = await import('./models/index.js');
+      const rules = await PrecedentRule.find({ userId });
+
+      if (rules.length === 0) {
+        await this.getBot().sendMessage(userId, '⚖️ 您还没有任何判例规则。\n\n当违规行为出现时，系统会要求您做出决定。');
+        return;
+      }
+
+      let message = `⚖️ **判例规则** (${rules.length} 条)\n\n`;
+      for (const rule of rules) {
+        message += `• ${rule.scope.behaviorKey} (${rule.scope.chainType === 'main' ? '主链' : '辅助链'}): ${rule.decision === 'allow_forever' ? '永久允许' : rule.decision}\n`;
+      }
+
+      await this.getBot().sendMessage(userId, message, { parse_mode: 'Markdown' });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.sendErrorMessage(userId, msg);
+    }
+  }
+
+  async handleReserveStatusCommand(userId: number): Promise<void> {
+    try {
+      const { AuxChain } = await import('./models/index.js');
+      const auxChain = await AuxChain.findOne({ userId, status: 'active' });
+
+      if (!auxChain || !auxChain.pendingReservation) {
+        await this.getBot().sendMessage(userId, '⏰ 当前没有活跃预约。\n\n使用 `/reserve 任务描述 时长` 创建预约。');
+        return;
+      }
+
+      const res = auxChain.pendingReservation;
+      const remaining = res.deadlineAt
+        ? Math.max(0, Math.ceil((res.deadlineAt.getTime() - Date.now()) / 60000))
+        : 0;
+
+      let message = '⏰ **预约状态**\n\n';
+      message += `📋 任务：${res.signal}\n`;
+      message += `🆔 预约ID：${res.reservationId}\n`;
+      message += `⏱ 剩余时间：${remaining} 分钟\n`;
+      message += `📊 状态：${res.status}`;
+
+      await this.getBot().sendMessage(userId, message, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🚀 立即开始', callback_data: `start_reserved_${res.reservationId}` },
+            { text: '❌ 取消预约', callback_data: `cancel_reservation_${res.reservationId}` }
+          ]]
+        }
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.sendErrorMessage(userId, msg);
+    }
   }
 
   async handleError(error: Error & { code?: string }): Promise<void> {

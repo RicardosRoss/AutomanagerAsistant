@@ -88,6 +88,8 @@ export const BOT_COMMANDS = {
   SETTINGS: 'settings',
   EXPORT: 'export',
   PATTERNS: 'patterns',
+  PRECEDENTS: 'precedents',
+  RESERVE_STATUS: 'reserve_status',
   LEADERBOARD: 'leaderboard'
 } as const;
 
