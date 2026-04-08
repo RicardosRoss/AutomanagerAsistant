@@ -2,9 +2,9 @@ import PatternTree from '../models/PatternTree.js';
 import type {
   AddPatternInput,
   AddPatternResult,
-  DeletePatternResult,
-  PatternTreeDocument
+  DeletePatternResult
 } from '../types/services.js';
+import type { PatternTreeDocument } from '../types/models.js';
 import { generateId } from '../utils/index.js';
 
 function todayStr(): string {

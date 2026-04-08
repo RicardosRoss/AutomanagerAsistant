@@ -254,7 +254,7 @@ class TaskCommandHandlers {
     // data format: delay_reservation_{reservationId}_{minutes}
     const payload = data.replace(CALLBACK_PREFIXES.DELAY_RESERVATION, '');
     const parts = payload.split('_');
-    const reservationId = parts[0];
+    const reservationId = parts[0] ?? '';
     const delayMinutes = Number.parseInt(parts[1] ?? '5', 10);
 
     try {
