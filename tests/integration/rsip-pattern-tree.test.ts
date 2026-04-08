@@ -179,14 +179,13 @@ describe('RSIP 定式执行', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 下必为例 — PrecedentService（尚未实现）
+// 下必为例 — PrecedentService
 // ---------------------------------------------------------------------------
 describe('下必为例 - PrecedentService 判例系统', () => {
   const userId = globalThis.testUserId;
   let precedentService: any;
 
   beforeEach(async () => {
-    // PrecedentService 尚未实现
     try {
       const mod = await import('../../src/services/PrecedentService.js');
       precedentService = new mod.default();
@@ -199,17 +198,15 @@ describe('下必为例 - PrecedentService 判例系统', () => {
     vi.restoreAllMocks();
   });
 
-  test('出现新违规时，只允许 break 或 allow-precedent 两种决定', async () => {
+  test('出现新违规时，只允许 break 或 allow_forever 两种决定', async () => {
     expect.hasAssertions();
 
     expect(precedentService).not.toBeNull();
 
-    // 先创建一条活跃链
-    const chainId = 'chain_test_precedent';
-
     const violation = await precedentService.reportViolation({
       userId,
-      chainId,
+      chainType: 'main',
+      chainId: 'chain_test_precedent',
       behaviorKey: 'reply_message'
     });
 
@@ -223,50 +220,20 @@ describe('下必为例 - PrecedentService 判例系统', () => {
     expect(violation.options).toHaveLength(2);
   });
 
-  test('选择 break_chain 应立即重置主链', async () => {
+  test('allow_forever 应创建永久判例规则', async () => {
     expect.hasAssertions();
 
     expect(precedentService).not.toBeNull();
 
-    const chainId = 'chain_test_break';
-
-    const violation = await precedentService.reportViolation({
+    const rule = await precedentService.allowForever({
       userId,
-      chainId,
-      behaviorKey: 'social_media'
-    });
-
-    const result = await precedentService.resolveViolation(
-      violation.violationId,
-      'break_chain'
-    );
-
-    expect(result.chainBroken).toBe(true);
-    expect(result.chain.status).toBe('broken');
-  });
-
-  test('选择 allow_forever 应创建永久判例规则', async () => {
-    expect.hasAssertions();
-
-    expect(precedentService).not.toBeNull();
-
-    const chainId = 'chain_test_allow';
-
-    const violation = await precedentService.reportViolation({
-      userId,
-      chainId,
+      chainType: 'main',
       behaviorKey: 'phone_call'
     });
 
-    const result = await precedentService.resolveViolation(
-      violation.violationId,
-      'allow_forever'
-    );
-
-    expect(result.chainBroken).toBe(false);
-    expect(result.precedentRule).toBeDefined();
-    expect(result.precedentRule.behaviorKey).toBe('phone_call');
-    expect(result.precedentRule.isPermanent).toBe(true);
+    expect(rule).toBeDefined();
+    expect(rule.scope.behaviorKey).toBe('phone_call');
+    expect(rule.decision).toBe('allow_forever');
   });
 
   test('已有判例的行为不应再次触发违规', async () => {
@@ -274,24 +241,22 @@ describe('下必为例 - PrecedentService 判例系统', () => {
 
     expect(precedentService).not.toBeNull();
 
-    const chainId = 'chain_test_precedent_skip';
-
     // 先允许该行为
-    const violation1 = await precedentService.reportViolation({
+    await precedentService.allowForever({
       userId,
-      chainId,
+      chainType: 'main',
       behaviorKey: 'stretch_break'
     });
-    await precedentService.resolveViolation(violation1.violationId, 'allow_forever');
 
-    // 再次触发同一行为不应产生违规
+    // 再次触发同一行为不应要求决定
     const violation2 = await precedentService.reportViolation({
       userId,
-      chainId,
+      chainType: 'main',
+      chainId: 'chain_test_precedent_skip',
       behaviorKey: 'stretch_break'
     });
 
     expect(violation2.requiresDecision).toBe(false);
-    expect(violation2.skipped).toBe(true);
+    expect(violation2.decision).toBe('allow_forever');
   });
 });

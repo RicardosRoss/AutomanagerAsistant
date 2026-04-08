@@ -100,7 +100,9 @@ export const CALLBACK_PREFIXES = {
   DELAY_RESERVATION: 'delay_reservation_',
   CANCEL_RESERVATION: 'cancel_reservation_',
   SETTINGS: 'settings_',
-  PATTERN_EXECUTE: 'pattern_execute_'
+  PATTERN_EXECUTE: 'pattern_execute_',
+  PRECEDENT_BREAK: 'precedent_break_',
+  PRECEDENT_ALLOW: 'precedent_allow_'
 } as const;
 
 export const ERROR_CODES = {
