@@ -458,3 +458,37 @@ export interface IPrecedentRule {
 export type PrecedentRuleDocument = HydratedDocument<IPrecedentRule>;
 
 export interface IPrecedentRuleModel extends Model<IPrecedentRule> {}
+
+// ─── RSIP Models ─────────────────────────────────────────────────────────────
+
+// PatternTree — RSIP pattern tree with daily add limit and stack-based cascade delete
+
+export type PatternNodeStatus = 'pending' | 'active' | 'failed' | 'deleted';
+
+export interface IPatternNode {
+  nodeId: string;
+  parentId: string | null;
+  title: string;
+  status: PatternNodeStatus;
+  createdOn: string; // YYYY-MM-DD
+  children: string[];
+}
+
+export interface IPatternTreeLimits {
+  maxNewPatternsPerDay: number;
+}
+
+export interface IPatternTree {
+  userId: number;
+  treeId: string;
+  nodes: IPatternNode[];
+  limits: IPatternTreeLimits;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export type PatternTreeDocument = HydratedDocument<IPatternTree>;
+
+export interface IPatternTreeModel extends Model<IPatternTree> {
+  findOrCreateForUser(userId: number): Promise<PatternTreeDocument>;
+}

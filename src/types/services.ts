@@ -3,6 +3,7 @@ import type {
   DivinationHistoryDocument,
   IDivinationHistoryStats,
   ITask,
+  PatternTreeDocument,
   TaskChainDocument,
   UserDocument
 } from './models.js';
@@ -240,4 +241,45 @@ export interface QueueServiceContract {
   resumeQueues(): Promise<void>;
   healthCheck(): Promise<QueueHealthCheck>;
   close(): Promise<void>;
+}
+
+// ─── RSIP Service ───────────────────────────────────────────────────────────
+
+export interface AddPatternInput {
+  title: string;
+  parentId?: string;
+}
+
+export interface AddPatternResult {
+  tree: PatternTreeDocument;
+  newNodeId: string;
+}
+
+export interface DeletePatternResult {
+  removedNodeIds: string[];
+}
+
+// ─── CTDP Service ────────────────────────────────────────────────────────────
+
+export interface StartMainTaskInput {
+  markerLabel: string;
+  description: string;
+  duration: number;
+  isReserved?: boolean;
+  reservationId?: string;
+}
+
+export interface StartMainTaskResult {
+  mainChain: import('./models.js').MainChainDocument;
+  task: ITask;
+}
+
+export interface FailMainTaskResult {
+  mainChain: import('./models.js').MainChainDocument;
+}
+
+export interface CompleteMainTaskResult {
+  mainChain: import('./models.js').MainChainDocument;
+  task: ITask;
+  cultivationReward: CultivationReward | null;
 }
