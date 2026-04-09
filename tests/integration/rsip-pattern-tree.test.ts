@@ -93,9 +93,30 @@ describe('RSIP 定式树结构', () => {
       userId,
       treeId,
       nodes: [
-        { nodeId: rootId, parentId: null, title: '工作前定式', status: 'pending', createdOn: today, children: [child1Id, child2Id] },
-        { nodeId: child1Id, parentId: rootId, title: '检查邮件', status: 'pending', createdOn: today, children: [] },
-        { nodeId: child2Id, parentId: rootId, title: '整理桌面', status: 'pending', createdOn: today, children: [] }
+        {
+          nodeId: rootId,
+          parentId: null,
+          title: '工作前定式',
+          status: 'pending',
+          createdOn: today,
+          children: [child1Id, child2Id]
+        },
+        {
+          nodeId: child1Id,
+          parentId: rootId,
+          title: '检查邮件',
+          status: 'pending',
+          createdOn: today,
+          children: []
+        },
+        {
+          nodeId: child2Id,
+          parentId: rootId,
+          title: '整理桌面',
+          status: 'pending',
+          createdOn: today,
+          children: []
+        }
       ],
       limits: { maxNewPatternsPerDay: 1 }
     });

@@ -89,6 +89,7 @@ describe('AuxChain Model', () => {
         pendingReservation: {
           reservationId: 'res_001',
           signal: 'start-focus',
+          duration: 60,
           createdAt: now,
           deadlineAt: deadline,
           status: 'pending'
@@ -100,6 +101,7 @@ describe('AuxChain Model', () => {
       expect(saved.pendingReservation).toBeDefined();
       expect(saved.pendingReservation!.reservationId).toBe('res_001');
       expect(saved.pendingReservation!.signal).toBe('start-focus');
+      expect(saved.pendingReservation).toMatchObject({ duration: 60 });
       expect(saved.pendingReservation!.createdAt).toEqual(now);
       expect(saved.pendingReservation!.deadlineAt).toEqual(deadline);
       expect(saved.pendingReservation!.status).toBe('pending');
@@ -120,20 +122,24 @@ describe('AuxChain Model', () => {
 
     it('should accept all valid pendingReservation statuses', async () => {
       const statuses = ['pending', 'fulfilled', 'expired', 'cancelled'] as const;
+      const savedChains = await Promise.all(
+        statuses.map((status, index) => {
+          const chain = new AuxChain({
+            userId: 220100 + index,
+            chainId: `ac_pending_status_${status}`,
+            pendingReservation: {
+              reservationId: `res_${status}`,
+              status
+            }
+          });
 
-      for (const status of statuses) {
-        const chain = new AuxChain({
-          userId: 220100 + statuses.indexOf(status),
-          chainId: `ac_pending_status_${status}`,
-          pendingReservation: {
-            reservationId: `res_${status}`,
-            status
-          }
-        });
+          return chain.save();
+        })
+      );
 
-        const saved = await chain.save();
-        expect(saved.pendingReservation!.status).toBe(status);
-      }
+      savedChains.forEach((saved, index) => {
+        expect(saved.pendingReservation!.status).toBe(statuses[index]);
+      });
     });
   });
 
@@ -148,6 +154,7 @@ describe('AuxChain Model', () => {
           {
             reservationId: 'res_hist_001',
             signal: 'start-focus',
+            duration: 25,
             createdAt: now,
             fulfilledAt: new Date(now.getTime() + 14 * 60 * 1000),
             status: 'fulfilled'
@@ -155,9 +162,11 @@ describe('AuxChain Model', () => {
           {
             reservationId: 'res_hist_002',
             signal: 'start-task',
+            duration: 30,
             createdAt: now,
-            fulfilledAt: new Date(now.getTime() + 15 * 60 * 1000),
-            status: 'expired'
+            delayedAt: new Date(now.getTime() + 15 * 60 * 1000),
+            delayMinutes: 5,
+            status: 'delayed'
           }
         ]
       });
@@ -167,7 +176,11 @@ describe('AuxChain Model', () => {
       expect(saved.reservationHistory).toHaveLength(2);
       expect(saved.reservationHistory[0].reservationId).toBe('res_hist_001');
       expect(saved.reservationHistory[0].status).toBe('fulfilled');
-      expect(saved.reservationHistory[1].status).toBe('expired');
+      expect(saved.reservationHistory[1]).toMatchObject({
+        reservationId: 'res_hist_002',
+        status: 'delayed',
+        delayMinutes: 5
+      });
     });
 
     it('should enforce reservationHistory status enum', async () => {
@@ -186,23 +199,27 @@ describe('AuxChain Model', () => {
     });
 
     it('should accept all valid reservationHistory statuses', async () => {
-      const statuses = ['fulfilled', 'expired', 'cancelled'] as const;
+      const statuses = ['fulfilled', 'expired', 'cancelled', 'delayed'] as const;
+      const savedChains = await Promise.all(
+        statuses.map((status, index) => {
+          const chain = new AuxChain({
+            userId: 230100 + index,
+            chainId: `ac_hist_status_${status}`,
+            reservationHistory: [
+              {
+                reservationId: `res_${status}`,
+                status
+              }
+            ]
+          });
 
-      for (const status of statuses) {
-        const chain = new AuxChain({
-          userId: 230100 + statuses.indexOf(status),
-          chainId: `ac_hist_status_${status}`,
-          reservationHistory: [
-            {
-              reservationId: `res_${status}`,
-              status
-            }
-          ]
-        });
+          return chain.save();
+        })
+      );
 
-        const saved = await chain.save();
-        expect(saved.reservationHistory[0].status).toBe(status);
-      }
+      savedChains.forEach((saved, index) => {
+        expect(saved.reservationHistory[0].status).toBe(statuses[index]);
+      });
     });
   });
 

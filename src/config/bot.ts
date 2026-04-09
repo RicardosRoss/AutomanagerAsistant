@@ -69,7 +69,7 @@ class BotConfig {
     if (this.options.polling) {
       baseOptions.polling = {
         interval: 1000,
-        autoStart: true,
+        autoStart: false,
         params: {
           timeout: 10
         }

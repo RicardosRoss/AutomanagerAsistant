@@ -75,27 +75,27 @@ ${botInfo.description}
 
   async handleHelpCommand(userId: number): Promise<void> {
     const commands = this.config.getSupportedCommands();
-    const helpText = `📚 **命令帮助**
+    const helpText = `📚 <b>命令帮助</b>
 
-${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
+${commands.map((cmd) => `/${cmd.command} - ${cmd.description.replace(/</g, '&lt;').replace(/>/g, '&gt;')}`).join('\n')}
 
-**使用示例：**
-\`/task 学习Python 45\` - 创建45分钟学习任务
-\`/task 写作业\` - 创建默认25分钟任务
-\`/reserve 准备考试 60\` - 预约60分钟后开始
+<b>使用示例：</b>
+<code>/task 学习Python 45</code> - 创建45分钟学习任务
+<code>/task 写作业</code> - 创建默认25分钟任务
+<code>/reserve 准备考试 60</code> - 预约60分钟后开始
 
-**重要提醒：**
-🔴 **神圣座位原理** - 任何任务失败都会重置所有进度
-⏰ **15分钟预约** - 降低60%的启动阻力
+<b>重要提醒：</b>
+🔴 <b>神圣座位原理</b> - 任何任务失败都会重置所有进度
+⏰ <b>15分钟预约</b> - 降低60%的启动阻力
 
 如需更多帮助，请查看 /settings 进行个性化配置。`;
 
-    await this.bot.sendMessage(userId, helpText, { parse_mode: 'Markdown' });
+    await this.bot.sendMessage(userId, helpText, { parse_mode: 'HTML' });
   }
 
   async handleStatusCommand(userId: number): Promise<void> {
     try {
-      const status = await this.taskService.getUserStatus(userId);
+      const status = await this.taskService.getUserStatus(userId, { includeTodayStats: false });
 
       if (!status.user) {
         await this.bot.sendMessage(userId, '请先使用 /start 命令初始化您的账户。');
@@ -133,7 +133,7 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
         const { MainChain, AuxChain, PrecedentRule } = await import('../models/index.js');
         const { default: PatternTree } = await import('../models/PatternTree.js');
 
-        const mainChain = await MainChain.findOne({ userId, status: 'active' });
+        const mainChain = await MainChain.findOne({ userId }).sort({ updatedAt: -1, createdAt: -1 });
         const auxChain = await AuxChain.findOne({ userId, status: 'active' });
         const precedentCount = await PrecedentRule.countDocuments({ userId });
         const patternTree = await PatternTree.findOne({ userId });
@@ -171,18 +171,20 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description}`).join('\n')}
 
   async handleStatsCommand(userId: number): Promise<void> {
     try {
-      const [status, todayStats] = await Promise.all([
-        this.taskService.getUserStatus(userId),
-        this.taskService.getDailyStats(userId)
-      ]);
+      const status = await this.taskService.getUserStatus(userId);
 
       if (!status.user) {
         await this.bot.sendMessage(userId, '请先使用 /start 命令初始化您的账户。');
         return;
       }
 
+      if (!status.todayStats) {
+        throw new Error('获取今日统计失败');
+      }
+
       const today = new Date().toLocaleDateString('zh-CN');
       let statsMessage = `📈 **今日统计** (${today})\n\n`;
+      const { todayStats } = status;
 
       if (todayStats.stats.tasksStarted > 0) {
         statsMessage += `🎯 启动任务：${todayStats.stats.tasksStarted}\n`;

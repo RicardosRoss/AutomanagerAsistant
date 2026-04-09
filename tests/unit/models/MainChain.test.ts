@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import mongoose from 'mongoose';
 import { MainChain } from '../../../src/models/index.js';
 
 describe('MainChain Model', () => {

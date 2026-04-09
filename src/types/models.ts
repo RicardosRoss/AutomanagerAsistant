@@ -407,11 +407,12 @@ export interface IMainChainModel extends Model<IMainChain> {
 // AuxChain — tracks reservations and their fulfillment
 
 export type PendingReservationStatus = 'pending' | 'fulfilled' | 'expired' | 'cancelled';
-export type HistoryReservationStatus = 'fulfilled' | 'expired' | 'cancelled';
+export type HistoryReservationStatus = 'fulfilled' | 'expired' | 'cancelled' | 'delayed';
 
 export interface IPendingReservation {
   reservationId?: string;
   signal?: string;
+  duration?: number;
   createdAt?: Date;
   deadlineAt?: Date;
   status?: PendingReservationStatus;
@@ -420,8 +421,11 @@ export interface IPendingReservation {
 export interface IReservationHistoryEntry {
   reservationId?: string;
   signal?: string;
+  duration?: number;
   createdAt?: Date;
   fulfilledAt?: Date;
+  delayedAt?: Date;
+  delayMinutes?: number;
   status: HistoryReservationStatus;
 }
 

@@ -55,6 +55,31 @@ class TaskCommandHandlers {
     };
   }
 
+  parseDelayReservationInput(data: string): { reservationId: string; delayMinutes: number } {
+    const payload = data.replace(CALLBACK_PREFIXES.DELAY_RESERVATION, '');
+
+    if (payload.includes(':')) {
+      const [delayPart = '5', reservationId = ''] = payload.split(':', 2);
+      return {
+        reservationId,
+        delayMinutes: Number.parseInt(delayPart, 10)
+      };
+    }
+
+    const lastSeparatorIndex = payload.lastIndexOf('_');
+    if (lastSeparatorIndex === -1) {
+      return {
+        reservationId: payload,
+        delayMinutes: 5
+      };
+    }
+
+    return {
+      reservationId: payload.slice(0, lastSeparatorIndex),
+      delayMinutes: Number.parseInt(payload.slice(lastSeparatorIndex + 1), 10)
+    };
+  }
+
   async handleTaskCommand(userId: number, taskInput: string): Promise<void> {
     try {
       if (!taskInput.trim()) {
@@ -95,11 +120,18 @@ class TaskCommandHandlers {
       const { description, duration } = this.parseTaskInput(taskInput || '专注任务 25');
       const reservationId = `res_${Date.now()}_${userId}`;
 
-      await this.queueService.scheduleReservation(userId, reservationId, description, duration);
-
-      // Record the reservation in AuxChain via CTDPService
       if (this.ctdpService) {
         await this.ctdpService.createReservation(userId, description, duration, reservationId);
+      }
+
+      try {
+        await this.queueService.scheduleReservation(userId, reservationId, description, duration);
+      } catch (error) {
+        if (this.ctdpService) {
+          await this.ctdpService.cancelReservation(userId, reservationId);
+        }
+
+        throw error;
       }
 
       await this.bot.sendMessage(
@@ -132,7 +164,9 @@ class TaskCommandHandlers {
     const taskId = data.replace(CALLBACK_PREFIXES.COMPLETE_TASK, '');
 
     try {
-      const result = await this.taskService.completeTask(userId, taskId, true);
+      const result = this.ctdpService
+        ? await this.ctdpService.completeTrackedTask(userId, taskId)
+        : await this.taskService.completeTask(userId, taskId, true);
 
       let message = '✅ 闭关修炼结束！\n\n';
       message += `⏰ 实际时长：${result.task.actualDuration ?? 0} 分钟\n`;
@@ -187,7 +221,9 @@ class TaskCommandHandlers {
     const taskId = data.replace(CALLBACK_PREFIXES.FAIL_TASK, '');
 
     try {
-      const result = await this.taskService.completeTask(userId, taskId, false, '用户主动放弃');
+      const result = this.ctdpService
+        ? await this.ctdpService.failTrackedTask(userId, taskId, '用户主动放弃')
+        : await this.taskService.completeTask(userId, taskId, false, '用户主动放弃');
 
       await this.bot.sendMessage(userId, NOTIFICATION_TEMPLATES.TASK_FAILED);
 
@@ -251,13 +287,13 @@ class TaskCommandHandlers {
   }
 
   async handleDelayReservationCallback(userId: number, data: string): Promise<void> {
-    // data format: delay_reservation_{reservationId}_{minutes}
-    const payload = data.replace(CALLBACK_PREFIXES.DELAY_RESERVATION, '');
-    const parts = payload.split('_');
-    const reservationId = parts[0] ?? '';
-    const delayMinutes = Number.parseInt(parts[1] ?? '5', 10);
+    const { reservationId, delayMinutes } = this.parseDelayReservationInput(data);
 
     try {
+      if (!reservationId || Number.isNaN(delayMinutes) || delayMinutes <= 0) {
+        throw new Error('无效的预约延期参数');
+      }
+
       if (this.ctdpService) {
         const result = await this.ctdpService.delayReservation(userId, reservationId, delayMinutes);
 
@@ -289,7 +325,9 @@ class TaskCommandHandlers {
     const reservationId = data.replace(CALLBACK_PREFIXES.CANCEL_RESERVATION, '');
 
     try {
-      const cancelled = await this.queueService.cancelReservation(reservationId);
+      const cancelled = this.ctdpService
+        ? (await this.ctdpService.cancelReservation(userId, reservationId)).cancelled
+        : await this.queueService.cancelReservation(reservationId);
 
       await this.bot.sendMessage(
         userId,

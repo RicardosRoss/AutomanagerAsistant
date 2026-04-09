@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { PrecedentRule } from '../../../src/models/index.js';
-import type { PrecedentRuleDocument } from '../../../src/types/models.js';
 
 // Lazy-import so the model is registered by the time the service loads
 let PrecedentService: typeof import('../../../src/services/PrecedentService.js').default;

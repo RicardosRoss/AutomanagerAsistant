@@ -1,7 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import mongoose from 'mongoose';
-import { MainChain } from '../../../src/models/index.js';
-import type { MainChainDocument } from '../../../src/types/models.js';
 import type {
   CompleteTaskResult,
   CreateTaskResult,
@@ -60,6 +57,14 @@ describe('CTDPService', () => {
     cultivationReward: null
   });
 
+  const fakeFailedCompleteResult = (taskOverrides: Record<string, unknown> = {}): CompleteTaskResult => ({
+    chain: {} as any,
+    task: fakeTask({ status: 'failed', ...taskOverrides }),
+    user: {} as any,
+    wasChainBroken: true,
+    cultivationReward: null
+  });
+
   // Helper: a fake CultivationReward
   const fakeCultivationReward: CultivationReward = {
     spiritualPower: 25,
@@ -86,7 +91,6 @@ describe('CTDPService', () => {
 
   describe('startMainTask', () => {
     it('should create a new MainChain and add a running node', async () => {
-      const createdTask = fakeTask({ taskId: 'task_new_001' });
       taskService.createTask.mockResolvedValue(fakeCreateResult({ taskId: 'task_new_001' }));
 
       const result = await ctdpService.startMainTask(testUserId, {
@@ -321,6 +325,9 @@ describe('CTDPService', () => {
       const node2 = startResult2.mainChain.nodes[1];
 
       // Now fail the second task
+      taskService.completeTask.mockResolvedValueOnce(
+        fakeFailedCompleteResult({ taskId: 'task_fail_2' })
+      );
       const result = await ctdpService.failMainTask(
         testUserId,
         chainId,
@@ -365,6 +372,9 @@ describe('CTDPService', () => {
 
       // Fail the second node
       const node2 = startResult2.mainChain.nodes[1];
+      taskService.completeTask.mockResolvedValueOnce(
+        fakeFailedCompleteResult({ taskId: 'task_clr_2' })
+      );
       const result = await ctdpService.failMainTask(
         testUserId,
         chainId,
@@ -406,6 +416,9 @@ describe('CTDPService', () => {
       });
       const node2 = startResult2.mainChain.nodes[1];
 
+      taskService.completeTask.mockResolvedValueOnce(
+        fakeFailedCompleteResult({ taskId: 'task_rst_2' })
+      );
       const result = await ctdpService.failMainTask(
         testUserId,
         chainId,
@@ -427,6 +440,9 @@ describe('CTDPService', () => {
       });
       const node = startResult.mainChain.nodes[0];
 
+      taskService.completeTask.mockResolvedValueOnce(
+        fakeFailedCompleteResult({ taskId: 'task_svc_fail' })
+      );
       await ctdpService.failMainTask(
         testUserId,
         startResult.mainChain.chainId,
@@ -499,6 +515,9 @@ describe('CTDPService', () => {
 
       // 4. Fail second task -> entire chain should reset
       const node2 = r3.mainChain.nodes[1];
+      taskService.completeTask.mockResolvedValueOnce(
+        fakeFailedCompleteResult({ taskId: 'lc_task_2' })
+      );
       const r4 = await ctdpService.failMainTask(
         testUserId, chainId, node2.nodeNo, '分心了'
       );

@@ -164,11 +164,15 @@ export interface CompleteTaskResult {
   cultivationReward: CultivationReward | null;
 }
 
+export interface GetUserStatusOptions {
+  includeTodayStats?: boolean;
+}
+
 export interface UserStatusResult {
   user: UserDocument | null;
   activeChain: TaskChainDocument | null;
   currentTask: ITask | undefined;
-  todayStats: DailyStatsDocument;
+  todayStats?: DailyStatsDocument;
   isActive: boolean;
   stats: UserDocument['stats'] | Record<string, never>;
 }
@@ -276,10 +280,15 @@ export interface StartMainTaskResult {
 
 export interface FailMainTaskResult {
   mainChain: import('./models.js').MainChainDocument;
+  task: ITask;
+  user: UserDocument;
+  wasChainBroken: boolean;
 }
 
 export interface CompleteMainTaskResult {
   mainChain: import('./models.js').MainChainDocument;
   task: ITask;
+  user: UserDocument;
+  wasChainBroken: boolean;
   cultivationReward: CultivationReward | null;
 }

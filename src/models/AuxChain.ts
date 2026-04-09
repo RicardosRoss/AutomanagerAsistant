@@ -3,14 +3,14 @@ import type {
   IAuxChain,
   IAuxChainModel,
   IPendingReservation,
-  IReservationHistoryEntry,
-  AuxChainDocument
+  IReservationHistoryEntry
 } from '../types/models.js';
 
 const pendingReservationSchema = new Schema<IPendingReservation>(
   {
     reservationId: { type: String },
     signal: { type: String },
+    duration: { type: Number },
     createdAt: { type: Date },
     deadlineAt: { type: Date },
     status: { type: String, enum: ['pending', 'fulfilled', 'expired', 'cancelled'] }
@@ -22,16 +22,19 @@ const reservationHistorySchema = new Schema<IReservationHistoryEntry>(
   {
     reservationId: { type: String },
     signal: { type: String },
+    duration: { type: Number },
     createdAt: { type: Date },
     fulfilledAt: { type: Date },
-    status: { type: String, enum: ['fulfilled', 'expired', 'cancelled'], required: true }
+    delayedAt: { type: Date },
+    delayMinutes: { type: Number },
+    status: { type: String, enum: ['fulfilled', 'expired', 'cancelled', 'delayed'], required: true }
   },
   { _id: false }
 );
 
 const auxChainSchema = new Schema<IAuxChain, IAuxChainModel>(
   {
-    userId: { type: Number, index: true, required: true },
+    userId: { type: Number, required: true },
     chainId: { type: String, unique: true, required: true },
     pendingReservation: pendingReservationSchema,
     reservationHistory: [reservationHistorySchema],
@@ -42,6 +45,11 @@ const auxChainSchema = new Schema<IAuxChain, IAuxChainModel>(
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
   }
+);
+
+auxChainSchema.index(
+  { userId: 1 },
+  { unique: true, partialFilterExpression: { status: 'active' } }
 );
 
 const AuxChain = mongoose.model<IAuxChain, IAuxChainModel>('AuxChain', auxChainSchema);

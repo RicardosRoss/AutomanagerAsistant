@@ -2,8 +2,7 @@ import mongoose, { Schema } from 'mongoose';
 import type {
   IPrecedentRule,
   IPrecedentRuleModel,
-  IPrecedentRuleScope,
-  PrecedentRuleDocument
+  IPrecedentRuleScope
 } from '../types/models.js';
 
 const scopeSchema = new Schema<IPrecedentRuleScope>(

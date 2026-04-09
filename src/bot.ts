@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import BotConfig from './config/bot.js';
+import redisConnection from './config/redis.js';
 import TaskService from './services/TaskService.js';
 import QueueService from './services/QueueService.js';
 import CultivationService from './services/CultivationService.js';
@@ -11,6 +12,12 @@ import CoreCommandHandlers from './handlers/coreCommands.js';
 import TaskCommandHandlers from './handlers/taskCommands.js';
 
 class SelfControlBot {
+  private static readonly UPDATE_DEDUP_TTL_SECONDS = 60 * 60;
+
+  private static readonly CALLBACK_ACTION_TTL_SECONDS = 3;
+
+  private static readonly processedUpdateCache = new Map<string, number>();
+
   config: BotConfig;
 
   bot: TelegramBot | null;
@@ -168,6 +175,8 @@ class SelfControlBot {
   async handleMessage(msg: TelegramBot.Message): Promise<void> {
     const userId = msg.from?.id;
     const text = msg.text || '';
+    const messageId = msg.message_id;
+    const chatId = msg.chat.id;
     const username =
       msg.from?.username || `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim();
 
@@ -175,7 +184,36 @@ class SelfControlBot {
       return;
     }
 
-    logger.logBotCommand(userId, text, { username, chatId: msg.chat.id });
+    const updateKey = this.getMessageUpdateKey(msg);
+    logger.info('收到 Telegram message update', {
+      userId,
+      chatId,
+      messageId,
+      updateKey,
+      text,
+      isCommand: text.startsWith('/'),
+      source: 'message_update'
+    });
+
+    if (updateKey) {
+      const shouldProcess = await this.claimProcessingKey(
+        updateKey,
+        SelfControlBot.UPDATE_DEDUP_TTL_SECONDS
+      );
+      if (!shouldProcess) {
+        logger.warn('忽略重复的 Telegram message update', {
+          userId,
+          chatId,
+          messageId,
+          updateKey,
+          text,
+          source: 'message_update'
+        });
+        return;
+      }
+    }
+
+    logger.logBotCommand(userId, text, { username, chatId });
 
     try {
       if (text.startsWith('/')) {
@@ -259,12 +297,62 @@ class SelfControlBot {
   async handleCallbackQuery(callbackQuery: TelegramBot.CallbackQuery): Promise<void> {
     const userId = callbackQuery.from.id;
     const data = callbackQuery.data;
+    const messageId = callbackQuery.message?.message_id;
 
     if (!data) {
       return;
     }
 
     try {
+      const updateKey = this.getCallbackUpdateKey(callbackQuery);
+      const actionKey = this.getCallbackActionKey(callbackQuery);
+
+      logger.info('收到 Telegram callback_query update', {
+        userId,
+        callbackId: callbackQuery.id,
+        callbackData: data,
+        messageId,
+        updateKey,
+        actionKey,
+        source: 'callback_query_update'
+      });
+
+      const shouldProcessUpdate = await this.claimProcessingKey(
+        updateKey,
+        SelfControlBot.UPDATE_DEDUP_TTL_SECONDS
+      );
+      if (!shouldProcessUpdate) {
+        logger.warn('忽略重复的 Telegram callback_query update', {
+          userId,
+          callbackId: callbackQuery.id,
+          callbackData: data,
+          messageId,
+          updateKey,
+          source: 'callback_query_update'
+        });
+        return;
+      }
+
+      const shouldProcessAction = await this.claimProcessingKey(
+        actionKey,
+        SelfControlBot.CALLBACK_ACTION_TTL_SECONDS
+      );
+      if (!shouldProcessAction) {
+        logger.warn('忽略短时间内重复触发的 callback 操作', {
+          userId,
+          callbackId: callbackQuery.id,
+          callbackData: data,
+          messageId,
+          actionKey,
+          source: 'callback_query_update'
+        });
+        await this.getBot().answerCallbackQuery(callbackQuery.id, {
+          text: '操作处理中，请勿重复点击',
+          show_alert: false
+        });
+        return;
+      }
+
       await this.getBot().answerCallbackQuery(callbackQuery.id);
 
       if (data.startsWith(CALLBACK_PREFIXES.COMPLETE_TASK)) {
@@ -338,6 +426,85 @@ class SelfControlBot {
     );
   }
 
+  isPollingConflictError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const message = error.message.toLowerCase();
+
+    return (
+      message.includes('409 conflict')
+      || message.includes('terminated by other getupdates request')
+    );
+  }
+
+  private getMessageUpdateKey(msg: TelegramBot.Message): string | null {
+    if (typeof msg.message_id !== 'number') {
+      return null;
+    }
+
+    return `message:${msg.chat.id}:${msg.message_id}`;
+  }
+
+  private getCallbackUpdateKey(callbackQuery: TelegramBot.CallbackQuery): string {
+    return `callback-update:${callbackQuery.id}`;
+  }
+
+  private getCallbackActionKey(callbackQuery: TelegramBot.CallbackQuery): string {
+    const messageId = callbackQuery.message?.message_id ?? 'unknown';
+    const data = callbackQuery.data ?? 'unknown';
+    return `callback-action:${callbackQuery.from.id}:${messageId}:${data}`;
+  }
+
+  private pruneProcessedUpdateCache(now = Date.now()): void {
+    SelfControlBot.processedUpdateCache.forEach((expiresAt, key) => {
+      if (expiresAt <= now) {
+        SelfControlBot.processedUpdateCache.delete(key);
+      }
+    });
+  }
+
+  private async claimProcessingKey(key: string, ttlSeconds: number): Promise<boolean> {
+    const now = Date.now();
+    const expiresAt = now + ttlSeconds * 1000;
+
+    this.pruneProcessedUpdateCache(now);
+
+    const cachedExpiresAt = SelfControlBot.processedUpdateCache.get(key);
+    if (cachedExpiresAt && cachedExpiresAt > now) {
+      return false;
+    }
+
+    if (redisConnection.isConnected) {
+      try {
+        const result = await redisConnection.getClient().set(
+          `bot:processed-update:${key}`,
+          JSON.stringify({
+            processedAt: new Date(now).toISOString(),
+            processId: process.pid
+          }),
+          { EX: ttlSeconds, NX: true }
+        );
+
+        if (result !== 'OK') {
+          SelfControlBot.processedUpdateCache.set(key, expiresAt);
+          return false;
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Redis update 去重写入失败，回退到进程内去重缓存', {
+          key,
+          ttlSeconds,
+          error: message
+        });
+      }
+    }
+
+    SelfControlBot.processedUpdateCache.set(key, expiresAt);
+    return true;
+  }
+
   async handleQuickCallback(userId: number, data: string): Promise<void> {
     switch (data) {
       case 'quick_task':
@@ -383,6 +550,10 @@ class SelfControlBot {
   }
 
   getUserFriendlyError(errorMessage: string): string {
+    if (errorMessage.includes('自控力检查')) {
+      return errorMessage.replace('完成任务失败: ', '');
+    }
+
     const errorMap: Record<string, string> = {
       '任务不存在或已被删除': '任务已过期或不存在，请创建新任务',
       用户不存在: '用户信息异常，请重新使用 /start 命令',
@@ -440,7 +611,9 @@ class SelfControlBot {
 
       let message = `⚖️ **判例规则** (${rules.length} 条)\n\n`;
       for (const rule of rules) {
-        message += `• ${rule.scope.behaviorKey} (${rule.scope.chainType === 'main' ? '主链' : '辅助链'}): ${rule.decision === 'allow_forever' ? '永久允许' : rule.decision}\n`;
+        const chainType = rule.scope.chainType === 'main' ? '主链' : '辅助链';
+        const decision = rule.decision === 'allow_forever' ? '永久允许' : rule.decision;
+        message += `• ${rule.scope.behaviorKey} (${chainType}): ${decision}\n`;
       }
 
       await this.getBot().sendMessage(userId, message, { parse_mode: 'Markdown' });
@@ -487,6 +660,16 @@ class SelfControlBot {
   }
 
   async handleError(error: Error & { code?: string }): Promise<void> {
+    if (this.isPollingConflictError(error)) {
+      logger.error('检测到 Telegram polling 409 conflict，请检查是否有多个 Bot 实例同时运行', {
+        error: error.message,
+        code: error.code,
+        source: 'bot_error_handler',
+        hint: '确认只保留一个 polling 进程，避免 PM2、手动启动或其他环境同时运行相同 Bot token'
+      });
+      return;
+    }
+
     logger.logError(error, { source: 'bot_error_handler' });
 
     if (this.isTransientPollingError(error)) {

@@ -54,6 +54,32 @@ describe('RSIPService', () => {
       expect(second.treeId).toBe(first.treeId);
       expect(second._id.toString()).toBe(first._id.toString());
     });
+
+    test('findOrCreateForUser 在并发调用下只应创建一棵树', async () => {
+      const originalCreate = PatternTree.create.bind(PatternTree);
+      const createSpy = vi.spyOn(PatternTree, 'create').mockImplementation(async (...args: any[]) => {
+        await new Promise((resolve) => {
+          globalThis.setTimeout(resolve, 20);
+        });
+
+        return originalCreate(...args);
+      });
+
+      const results = await Promise.allSettled([
+        PatternTree.findOrCreateForUser(userId),
+        PatternTree.findOrCreateForUser(userId)
+      ]);
+
+      const fulfilled = results.filter(
+        (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof PatternTree.findOrCreateForUser>>> =>
+          result.status === 'fulfilled'
+      );
+
+      expect(fulfilled).toHaveLength(2);
+      expect(new Set(fulfilled.map((result) => result.value.treeId)).size).toBe(1);
+      expect(await PatternTree.countDocuments({ userId })).toBe(1);
+      expect(createSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    });
   });
 
   // ─── addPattern ───────────────────────────────────────────────────────────
@@ -251,7 +277,7 @@ describe('RSIPService', () => {
     });
 
     test('throws if nodeId not found in tree', async () => {
-      const root = await service.addPattern(userId, { title: '根' });
+      await service.addPattern(userId, { title: '根' });
       const tree = await PatternTree.findOne({ userId });
 
       await expect(

@@ -70,8 +70,9 @@ stop_existing_process() {
         echo -e "${GREEN}✅ 已停止现有 PM2 进程${NC}"
     fi
 
-    # 查找并停止直接运行的进程
-    PIDS=$(pgrep -f "node.*src/app.js" | head -5 || true)
+    # 查找并停止手动启动的应用进程，避免与 PM2 新实例发生 polling 冲突
+    APP_PROCESS_PATTERN="(${PROJECT_DIR}/dist/src/app.js|${PROJECT_DIR}/src/app\\.(ts|js)|dist/src/app.js|src/app\\.(ts|js))"
+    PIDS=$(pgrep -f "$APP_PROCESS_PATTERN" | awk '!seen[$0]++' | head -20 || true)
     if [ ! -z "$PIDS" ]; then
         echo -e "${YELLOW}停止直接运行的进程: $PIDS${NC}"
         echo $PIDS | xargs kill -TERM 2>/dev/null || true

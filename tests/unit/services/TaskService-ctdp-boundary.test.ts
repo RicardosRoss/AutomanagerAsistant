@@ -11,6 +11,14 @@
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../../../src/services/TaskService.js';
+import { TaskChain } from '../../../src/models/index.js';
+
+async function backdateTask(taskId: string, minutesAgo: number): Promise<void> {
+  await TaskChain.updateOne(
+    { 'tasks.taskId': taskId },
+    { $set: { 'tasks.$.startTime': new Date(Date.now() - minutesAgo * 60 * 1000) } }
+  );
+}
 
 describe('TaskService — CTDP 协议边界', () => {
   let taskService: TaskService;
@@ -107,6 +115,7 @@ describe('TaskService — CTDP 协议边界', () => {
 
       // 先完成一个普通任务
       const firstResult = await taskService.createTask(userId, '普通任务', 25);
+      await backdateTask(firstResult.task.taskId, 25);
       await taskService.completeTask(userId, firstResult.task.taskId, true);
 
       // 再创建一个预约任务并失败

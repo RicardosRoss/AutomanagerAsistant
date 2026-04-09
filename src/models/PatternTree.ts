@@ -25,7 +25,7 @@ const patternNodeSchema = new Schema<IPatternNode>(
 
 const patternTreeSchema = new Schema<IPatternTree, IPatternTreeModel>(
   {
-    userId: { type: Number, index: true, required: true },
+    userId: { type: Number, required: true },
     treeId: { type: String, unique: true, required: true },
     nodes: [patternNodeSchema],
     limits: {
@@ -39,15 +39,46 @@ const patternTreeSchema = new Schema<IPatternTree, IPatternTreeModel>(
   }
 );
 
+patternTreeSchema.index({ userId: 1 }, { unique: true });
+
 patternTreeSchema.statics.findOrCreateForUser = async function findOrCreateForUser(
   this: IPatternTreeModel,
   userId: number
 ): Promise<PatternTreeDocument> {
-  const existing = await this.findOne({ userId });
-  if (existing) return existing;
+  try {
+    await this.init();
 
-  const treeId = generateId('pt');
-  return this.create({ userId, treeId, nodes: [], limits: { maxNewPatternsPerDay: 1 } });
+    const tree = await this.findOneAndUpdate(
+      { userId },
+      {
+        $setOnInsert: {
+          treeId: generateId('pt'),
+          nodes: [],
+          limits: { maxNewPatternsPerDay: 1 }
+        }
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true
+      }
+    );
+
+    if (!tree) {
+      throw new Error(`无法为用户 ${userId} 初始化定式树`);
+    }
+
+    return tree;
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) {
+      const existing = await this.findOne({ userId });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    throw error;
+  }
 };
 
 const PatternTree = mongoose.model<IPatternTree, IPatternTreeModel>('PatternTree', patternTreeSchema);

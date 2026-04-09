@@ -9,6 +9,7 @@ import type {
   CreateTaskResult,
   CultivationReward,
   CultivationServiceDependency,
+  GetUserStatusOptions,
   QueueServiceDependency,
   UserStatusResult
 } from '../types/services.js';
@@ -109,9 +110,35 @@ class TaskService {
     failureReason: string | null = null
   ): Promise<CompleteTaskResult> {
     try {
-      const endTime = new Date();
-      const newStatus = success ? 'completed' : 'failed';
+      // Step 1: Read task data for duration check (non-atomic read)
+      const checkChain = await TaskChain.findOne({
+        userId,
+        'tasks.taskId': taskId,
+        'tasks.status': 'running'
+      });
 
+      if (!checkChain) {
+        throw new Error('任务不存在、已完成或未在运行状态');
+      }
+
+      const checkTask = checkChain.tasks.find((entry) => entry.taskId === taskId);
+      if (!checkTask) {
+        throw new Error('指定的任务不存在');
+      }
+
+      const endTime = new Date();
+      const actualDuration = Math.floor((endTime.getTime() - checkTask.startTime.getTime()) / 60000);
+
+      // Self-control enforcement: cannot mark complete before duration elapsed
+      if (success && actualDuration < checkTask.duration) {
+        const remaining = checkTask.duration - actualDuration;
+        throw new Error(
+          `自控力检查：任务时长 ${checkTask.duration} 分钟，实际仅过 ${actualDuration} 分钟。还差 ${remaining} 分钟，请继续专注！`
+        );
+      }
+
+      // Step 2: Atomic status transition to prevent duplicate completion
+      const newStatus = success ? 'completed' : 'failed';
       const chain = await TaskChain.findOneAndUpdate(
         {
           userId,
@@ -121,12 +148,11 @@ class TaskService {
         {
           $set: {
             'tasks.$.status': newStatus,
-            'tasks.$.endTime': endTime
+            'tasks.$.endTime': endTime,
+            'tasks.$.actualDuration': actualDuration
           }
         },
-        {
-          new: false
-        }
+        { new: true }
       );
 
       if (!chain) {
@@ -138,37 +164,24 @@ class TaskService {
         throw new Error('指定的任务不存在');
       }
 
-      task.status = newStatus;
-      task.endTime = endTime;
-      task.actualDuration = Math.floor((endTime.getTime() - task.startTime.getTime()) / 60000);
-
-      const updatedChain = await TaskChain.findOne({
-        userId,
-        'tasks.taskId': taskId
-      });
-
-      if (!updatedChain) {
-        throw new Error('任务链在更新后丢失');
-      }
-
       const user = await User.findOne({ userId });
       if (!user) {
         throw new Error('用户不存在');
       }
 
       if (success) {
-        updatedChain.completedTasks += 1;
-        updatedChain.totalMinutes += task.actualDuration;
-        updatedChain.lastTaskCompletedAt = endTime;
+        chain.completedTasks += 1;
+        chain.totalMinutes += actualDuration;
+        chain.lastTaskCompletedAt = endTime;
 
         user.stats.completedTasks += 1;
-        user.stats.totalMinutes += task.actualDuration;
+        user.stats.totalMinutes += actualDuration;
         user.updateStreak(true);
         user.stats.lastTaskDate = endTime;
 
         let cultivationReward: CultivationReward | null = null;
         try {
-          cultivationReward = await this.cultivationService.awardCultivation(userId, task.actualDuration);
+          cultivationReward = await this.cultivationService.awardCultivation(userId, actualDuration);
           logger.info(
             `修仙奖励: +${cultivationReward.spiritualPower}灵力, +${cultivationReward.immortalStones}仙石`,
             {
@@ -184,12 +197,12 @@ class TaskService {
 
         logger.info(`任务完成成功: ${taskId}, 用户连击数: ${user.stats.currentStreak}`);
 
-        await Promise.all([updatedChain.save(), user.save()]);
+        await Promise.all([chain.save(), user.save()]);
         await this.cancelTaskReminders(taskId);
         await this.updateDailyStats(userId, task, true);
 
         return {
-          chain: updatedChain,
+          chain,
           task,
           user,
           wasChainBroken: false,
@@ -197,25 +210,25 @@ class TaskService {
         };
       }
 
-      updatedChain.failedTasks += 1;
-      updatedChain.breakChain(failureReason || '任务未能完成', taskId);
+      chain.failedTasks += 1;
+      chain.breakChain(failureReason || '任务未能完成', taskId);
 
       user.stats.failedTasks += 1;
       user.updateStreak(false);
 
       logger.warn(`任务失败，链条重置: ${taskId}, 原因: ${failureReason}`, {
         userId,
-        chainId: updatedChain.chainId,
-        previousTotal: updatedChain.totalTasks,
-        previousCompleted: updatedChain.completedTasks
+        chainId: chain.chainId,
+        previousTotal: chain.totalTasks,
+        previousCompleted: chain.completedTasks
       });
 
-      await Promise.all([updatedChain.save(), user.save()]);
+      await Promise.all([chain.save(), user.save()]);
       await this.cancelTaskReminders(taskId);
       await this.updateDailyStats(userId, task, false);
 
       return {
-        chain: updatedChain,
+        chain,
         task,
         user,
         wasChainBroken: true,
@@ -228,12 +241,16 @@ class TaskService {
     }
   }
 
-  async getUserStatus(userId: number): Promise<UserStatusResult> {
+  async getUserStatus(
+    userId: number,
+    options: GetUserStatusOptions = {}
+  ): Promise<UserStatusResult> {
     try {
+      const { includeTodayStats = true } = options;
       const [user, activeChain, todayStats] = await Promise.all([
         User.findOne({ userId }),
         TaskChain.findOne({ userId, status: 'active' }),
-        this.getDailyStats(userId, new Date())
+        includeTodayStats ? this.getDailyStats(userId, new Date()) : Promise.resolve(undefined)
       ]);
 
       const currentTask = activeChain?.currentTask;
