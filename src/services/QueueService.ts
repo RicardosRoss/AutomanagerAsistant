@@ -299,6 +299,37 @@ class QueueService {
     }
   }
 
+  async rescheduleReservation(reservationId: string, delayMs: number): Promise<BullJobId | undefined> {
+    try {
+      if (!this.isInitialized) {
+        throw new Error('QueueService 未初始化');
+      }
+
+      const reservationQueue = this.getReservationQueue();
+      const existingJob = await reservationQueue.getJob(reservationId);
+
+      let jobData: ReservationJobData;
+      if (existingJob) {
+        jobData = existingJob.data;
+        await existingJob.remove();
+      } else {
+        throw new Error('预约不存在或已执行');
+      }
+
+      const job = await reservationQueue.add('reservation', jobData, {
+        delay: delayMs,
+        jobId: reservationId
+      });
+
+      console.log(`⏰ 预约已延期: ${reservationId}, 新延迟: ${delayMs / 1000}秒`);
+      return job.id;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ 延期预约失败: ${errorMessage}`, { reservationId, delayMs });
+      throw error;
+    }
+  }
+
   async cancelReservation(reservationId: string): Promise<boolean> {
     try {
       if (!this.isInitialized) {
@@ -383,7 +414,7 @@ class QueueService {
         reply_markup: {
           inline_keyboard: [[
             { text: '🚀 立即开始', callback_data: `start_reserved_${reservationId}` },
-            { text: '⏰ 延迟5分钟', callback_data: `delay_reservation_${reservationId}_5` },
+            { text: '⏰ 延迟5分钟', callback_data: `delay_reservation_5:${reservationId}` },
             { text: '❌ 取消预约', callback_data: `cancel_reservation_${reservationId}` }
           ]]
         }

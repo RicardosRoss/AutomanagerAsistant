@@ -1,5 +1,17 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../../../src/services/TaskService.js';
+import { TaskChain } from '../../../src/models/index.js';
+
+/**
+ * Backdate a task's startTime so the duration check passes on complete.
+ * Simulates real elapsed time in tests.
+ */
+async function backdateTask(taskId: string, minutesAgo: number): Promise<void> {
+  await TaskChain.updateOne(
+    { 'tasks.taskId': taskId },
+    { $set: { 'tasks.$.startTime': new Date(Date.now() - minutesAgo * 60 * 1000) } }
+  );
+}
 
 describe('TaskService', () => {
   let taskService: TaskService;
@@ -44,6 +56,7 @@ describe('TaskService', () => {
       const userId = globalThis.testUserId;
 
       const firstTask = await taskService.createTask(userId, '任务1', 30);
+      await backdateTask(firstTask.task.taskId, 30);
       await taskService.completeTask(userId, firstTask.task.taskId, true);
 
       const secondTask = await taskService.createTask(userId, '任务2', 30);
@@ -61,6 +74,7 @@ describe('TaskService', () => {
 
       for (let i = 1; i <= 3; i += 1) {
         const taskResult = await taskService.createTask(userId, `任务${i}`, 25);
+        await backdateTask(taskResult.task.taskId, 25);
         await taskService.completeTask(userId, taskResult.task.taskId, true);
       }
 
@@ -105,6 +119,20 @@ describe('TaskService', () => {
       expect(status.currentTask).toBeDefined();
       expect(status.isActive).toBe(true);
       expect(status.currentTask.taskId).toBe(result.task.taskId);
+    });
+
+    test('获取用户状态时可跳过 todayStats 查询', async () => {
+      const userId = globalThis.testUserId;
+      await taskService.createTask(userId, '测试任务', 25);
+
+      const getDailyStatsSpy = vi.spyOn(taskService, 'getDailyStats');
+      const status = await taskService.getUserStatus(userId, { includeTodayStats: false });
+
+      expect(status.user).toBeDefined();
+      expect(status.activeChain).toBeDefined();
+      expect(status.currentTask).toBeDefined();
+      expect(status.todayStats).toBeUndefined();
+      expect(getDailyStatsSpy).not.toHaveBeenCalled();
     });
   });
 });

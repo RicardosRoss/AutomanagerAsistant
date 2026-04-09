@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../src/services/TaskService.js';
 import { TaskChain, User } from '../src/models/index.js';
 
+async function backdateTask(taskId: string, minutesAgo: number): Promise<void> {
+  await TaskChain.updateOne(
+    { 'tasks.taskId': taskId },
+    { $set: { 'tasks.$.startTime': new Date(Date.now() - minutesAgo * 60 * 1000) } }
+  );
+}
+
 describe('任务重复完成防护测试', () => {
   let taskService: TaskService;
 
@@ -42,6 +49,8 @@ describe('任务重复完成防护测试', () => {
     const completedBefore = userBefore?.stats.completedTasks ?? 0;
     const minutesBefore = userBefore?.stats.totalMinutes ?? 0;
 
+    await backdateTask(testTaskId, 25);
+
     const [result1, result2] = await Promise.allSettled([
       taskService.completeTask(testUserId, testTaskId, true),
       taskService.completeTask(testUserId, testTaskId, true)
@@ -75,6 +84,9 @@ describe('任务重复完成防护测试', () => {
 
     const firstTask = await taskService.createTask(firstUserId, '测试任务1', 25);
     const secondTask = await taskService.createTask(secondUserId, '测试任务2', 30);
+
+    await backdateTask(firstTask.task.taskId, 25);
+    await backdateTask(secondTask.task.taskId, 30);
 
     const [resultA, resultB] = await Promise.allSettled([
       taskService.completeTask(firstUserId, firstTask.task.taskId, true),
