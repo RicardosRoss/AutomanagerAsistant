@@ -1,7 +1,20 @@
 import mongoose, { Schema, type CallbackWithoutResultAndOptionalError } from 'mongoose';
+import {
+  UNIVERSAL_DAO_TRACK,
+  createDefaultBattleLoadoutState,
+  getStarterBattleArtIds,
+  normalizeMainDaoTrack
+} from '../config/xuanjianCanonical.js';
+import {
+  deriveCanonicalSnapshotFromLegacy,
+  shouldRefreshCanonicalFromLegacy,
+  toLegacyCultivationShell
+} from '../services/CultivationStateAdapter.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 import type {
   IUser,
   IUserActiveStats,
+  IUserCultivationCanonical,
   IUserIdentityInput,
   IUserLevelInfo,
   IUserMethods,
@@ -13,15 +26,13 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
   {
     userId: {
       type: Number,
-      required: true,
-      unique: true,
-      index: true
+      required: true
     },
     username: String,
     firstName: String,
     lastName: String,
     settings: {
-      defaultDuration: { type: Number, default: 25 },
+      defaultDuration: { type: Number, default: DEFAULT_TASK_DURATION_MINUTES },
       reminderEnabled: { type: Boolean, default: true },
       timezone: { type: String, default: 'UTC' },
       language: { type: String, default: 'zh-CN' }
@@ -47,6 +58,63 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
       realmId: { type: Number, default: 1 },
       realmStage: { type: String, default: '初期' },
       immortalStones: { type: Number, default: 0 },
+      canonical: {
+        schemaVersion: { type: Number, default: 1 },
+        state: {
+          realmId: { type: String, default: 'realm.taixi' },
+          currentPower: { type: Number, default: 0 },
+          mainMethodId: { type: String, default: 'method.starter_tuna' },
+          mainDaoTrack: { type: String, default: UNIVERSAL_DAO_TRACK },
+          cultivationAttainment: { type: Number, default: 0 },
+          foundationId: { type: String, default: 'foundation.unshaped' },
+          knownBattleArtIds: { type: [String], default: () => getStarterBattleArtIds() },
+          equippedBattleArtIds: { type: [String], default: () => getStarterBattleArtIds() },
+          knownDivinePowerIds: { type: [String], default: [] },
+          equippedDivinePowerIds: { type: [String], default: [] },
+          equipmentLoadout: { type: Schema.Types.Mixed, default: () => ({}) },
+          inventoryItemIds: { type: [String], default: [] },
+          injuryState: {
+            level: { type: String, default: 'none' },
+            points: { type: Number, default: 0 },
+            modifiers: { type: [String], default: [] }
+          },
+          realmSubStageId: { type: String, default: 'realmSubStage.taixi.xuanjing' },
+          branchCultivationAttainments: { type: Schema.Types.Mixed, default: () => ({}) },
+          battleLoadout: {
+            equippedBattleArtIds: { type: [String], default: () => createDefaultBattleLoadoutState().equippedBattleArtIds },
+            equippedDivinePowerIds: { type: [String], default: [] },
+            equippedArtifactIds: { type: [String], default: [] },
+            activeSupportArtId: { type: String, default: null }
+          },
+          cooldowns: { type: Schema.Types.Mixed, default: () => ({}) },
+          combatFlags: { type: Schema.Types.Mixed, default: () => ({}) },
+          combatHistorySummary: { type: [Schema.Types.Mixed], default: [] },
+          focusStreak: { type: Number, default: 0 },
+          lastCultivationAt: { type: Date, default: null },
+          pendingDivinationBuff: { type: Schema.Types.Mixed, default: null },
+          schemaVersion: { type: Number, default: 1 }
+        },
+        breakthrough: { type: Schema.Types.Mixed, default: null },
+        inventory: {
+          type: [
+            {
+              instanceId: { type: String, required: true },
+              definitionId: { type: String, required: true },
+              obtainedAt: { type: Date, default: Date.now },
+              sourceType: {
+                type: String,
+                enum: ['focus', 'encounter', 'migration', 'admin'],
+                required: true
+              },
+              bound: { type: Boolean, default: false },
+              used: { type: Boolean, default: false },
+              stackCount: { type: Number, default: 1 },
+              instanceMeta: { type: Schema.Types.Mixed, default: () => ({}) }
+            }
+          ],
+          default: []
+        }
+      },
       ascensions: { type: Number, default: 0 },
       immortalMarks: { type: Number, default: 0 },
       lastAscensionAt: Date,
@@ -72,6 +140,10 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
     toObject: { virtuals: true }
   }
 );
+
+function cloneCanonicalCultivation(canonical: IUserCultivationCanonical): IUserCultivationCanonical {
+  return JSON.parse(JSON.stringify(canonical)) as IUserCultivationCanonical;
+}
 
 userSchema.virtual('successRate').get(function getSuccessRate(this: UserDocument) {
   if (this.stats.totalTasks === 0) {
@@ -143,7 +215,7 @@ userSchema.statics.findOrCreate = async function findOrCreate(this: IUserModel, 
       firstName: userData.firstName,
       lastName: userData.lastName,
       settings: {
-        defaultDuration: 25,
+        defaultDuration: DEFAULT_TASK_DURATION_MINUTES,
         reminderEnabled: true,
         timezone: 'UTC',
         language: 'zh-CN'
@@ -238,6 +310,27 @@ userSchema.methods.ascend = function ascend(this: UserDocument) {
   this.cultivation.realm = '炼气期';
   this.cultivation.realmId = 1;
   this.cultivation.realmStage = '初期';
+
+  if (this.cultivation.canonical?.state) {
+    const canonical = this.ensureCanonicalCultivation();
+    canonical.state.currentPower = 0;
+    canonical.state.realmId = 'realm.taixi';
+    canonical.state.realmSubStageId = 'realmSubStage.taixi.xuanjing';
+    canonical.state.branchCultivationAttainments = {};
+    canonical.state.battleLoadout = createDefaultBattleLoadoutState();
+    canonical.state.injuryState = {
+      level: 'none',
+      points: 0,
+      modifiers: []
+    };
+    canonical.state.cooldowns = {};
+    canonical.state.combatFlags = {};
+    canonical.state.combatHistorySummary = [];
+    canonical.state.focusStreak = 0;
+    canonical.state.lastCultivationAt = null;
+    this.replaceCanonicalCultivation(canonical);
+  }
+
   return this;
 };
 
@@ -247,6 +340,128 @@ userSchema.methods.addAchievement = function addAchievement(this: UserDocument, 
   }
 
   return this;
+};
+
+userSchema.methods.ensureCanonicalCultivation = function ensureCanonicalCultivation(this: UserDocument) {
+  let canonical = this.cultivation.canonical ? cloneCanonicalCultivation(this.cultivation.canonical) : null;
+  const shouldReset = shouldRefreshCanonicalFromLegacy(this);
+  let needsReplace = shouldReset || !this.cultivation.canonical?.state;
+
+  if (!canonical || !canonical.state || shouldReset) {
+    canonical = deriveCanonicalSnapshotFromLegacy(this) as IUserCultivationCanonical;
+    this.replaceCanonicalCultivation(canonical);
+  }
+
+  if (!Array.isArray(canonical.inventory)) {
+    canonical.inventory = [];
+    needsReplace = true;
+  }
+
+  if (!Array.isArray(canonical.state.inventoryItemIds)) {
+    canonical.state.inventoryItemIds = [];
+    needsReplace = true;
+  }
+
+  const normalizedMainDaoTrack = normalizeMainDaoTrack(canonical.state.mainDaoTrack);
+  if (canonical.state.mainDaoTrack !== normalizedMainDaoTrack) {
+    canonical.state.mainDaoTrack = normalizedMainDaoTrack;
+    needsReplace = true;
+  }
+
+  if (needsReplace) {
+    this.replaceCanonicalCultivation(canonical);
+  }
+
+  return canonical;
+};
+
+userSchema.methods.replaceCanonicalCultivation = function replaceCanonicalCultivation(
+  this: UserDocument,
+  canonical: IUserCultivationCanonical
+) {
+  this.cultivation.canonical = cloneCanonicalCultivation(canonical);
+  this.markModified('cultivation.canonical');
+  return cloneCanonicalCultivation(this.cultivation.canonical);
+};
+
+userSchema.methods.syncLegacyCultivationShell = function syncLegacyCultivationShell(this: UserDocument) {
+  const canonical = this.ensureCanonicalCultivation();
+  const legacyShell = toLegacyCultivationShell(canonical.state, this.cultivation.immortalStones);
+
+  this.cultivation.spiritualPower = legacyShell.spiritualPower;
+  this.cultivation.realm = legacyShell.realm;
+  this.cultivation.realmId = legacyShell.realmId;
+  this.cultivation.realmStage = legacyShell.realmStage;
+  this.cultivation.immortalStones = legacyShell.immortalStones;
+
+  return this;
+};
+
+userSchema.methods.grantInventoryDefinition = function grantInventoryDefinition(
+  this: UserDocument,
+  definitionId: string,
+  sourceType: 'focus' | 'encounter' | 'migration' | 'admin'
+) {
+  const canonical = this.ensureCanonicalCultivation();
+  const instanceId = `${definitionId}:${Date.now()}`;
+
+  canonical.inventory.push({
+    instanceId,
+    definitionId,
+    obtainedAt: new Date(),
+    sourceType,
+    bound: false,
+    used: false,
+    stackCount: 1,
+    instanceMeta: {}
+  });
+  canonical.state.inventoryItemIds.push(instanceId);
+
+  this.replaceCanonicalCultivation(canonical);
+  return this;
+};
+
+userSchema.methods.consumeInventoryDefinition = function consumeInventoryDefinition(
+  this: UserDocument,
+  definitionId: string,
+  count: number
+) {
+  if (count <= 0) {
+    return true;
+  }
+
+  const canonical = this.ensureCanonicalCultivation();
+  const candidates = canonical.inventory.filter(
+    (item) => item.definitionId === definitionId && !item.used && item.stackCount > 0
+  );
+  const totalAvailable = candidates.reduce((sum, item) => sum + item.stackCount, 0);
+
+  if (totalAvailable < count) {
+    return false;
+  }
+
+  let remaining = count;
+  for (const item of candidates) {
+    if (remaining <= 0) {
+      break;
+    }
+
+    const consumed = Math.min(item.stackCount, remaining);
+    item.stackCount -= consumed;
+    remaining -= consumed;
+
+    if (item.stackCount <= 0) {
+      item.stackCount = 0;
+      item.used = true;
+    }
+  }
+
+  canonical.state.inventoryItemIds = canonical.inventory
+    .filter((item) => !item.used && item.stackCount > 0)
+    .map((item) => item.instanceId);
+
+  this.replaceCanonicalCultivation(canonical);
+  return true;
 };
 
 userSchema.virtual('divinationWinRate').get(function getDivinationWinRate(this: UserDocument) {
@@ -326,7 +541,7 @@ userSchema.statics.getActiveUserStats = async function getActiveUserStats(
   );
 };
 
-userSchema.index({ userId: 1 });
+userSchema.index({ userId: 1 }, { unique: true });
 userSchema.index({ 'stats.currentStreak': -1 });
 userSchema.index({ updatedAt: -1 });
 userSchema.index({ 'stats.completedTasks': -1 });
