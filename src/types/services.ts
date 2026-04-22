@@ -9,9 +9,10 @@ import type {
 } from './models.js';
 import type {
   BaguaDivination,
-  FortuneEvent,
-  RealmDisplay
+  FortuneEvent
 } from './cultivation.js';
+import type { CombatResolution } from './cultivationCombat.js';
+import type { DivinationBuff, PlayerCultivationState, RealmId } from './cultivationCanonical.js';
 
 export interface ProgressReminderData {
   userId: number;
@@ -76,27 +77,88 @@ export interface FortuneEventResult {
   message: string | null;
 }
 
+export interface CombatEncounterSummary {
+  encounterId: string;
+  enemyName: string;
+  result: 'win' | 'loss' | 'narrow_win';
+  summary: string;
+  injuryLevel: 'none' | 'light' | 'medium' | 'heavy';
+  rounds?: CombatResolution['rounds'];
+}
+
+export interface CultivationEncounterResult {
+  type: 'none' | 'stones' | 'item' | 'combat';
+  message: string | null;
+  spiritStoneDelta: number;
+  obtainedDefinitionIds: string[];
+  combatEncounterId?: string;
+  combatSummary?: CombatEncounterSummary;
+}
+
+export interface InjuryRecoverySummary {
+  applied: boolean;
+  previousLevel: PlayerCultivationState['injuryState']['level'];
+  nextLevel: PlayerCultivationState['injuryState']['level'];
+  summary: string | null;
+}
+
 export interface CultivationReward {
   spiritualPower: number;
   immortalStones: number;
   bonus: number;
+  cultivationAttainment?: number;
+  cultivationAttainmentDelta?: number;
+  mainMethodName?: string;
+  encounter?: CultivationEncounterResult;
+  injuryRecovery?: InjuryRecoverySummary | null;
+  breakthroughReady?: boolean;
   fortuneEvent: FortuneEventResult;
   oldRealm?: string;
+  oldRealmId?: RealmId;
   newRealm: string;
+  newRealmId?: RealmId;
   newStage: string;
+  stageId?: string;
   realmChanged: boolean;
   oldSpiritualPower?: number;
   newSpiritualPower: number;
 }
 
-export interface CultivationStatusResult extends RealmDisplay {
+export interface CultivationStatusResult {
   user: UserDocument;
+  realm: {
+    id: number | RealmId;
+    canonicalId?: RealmId;
+    name: string;
+    minPower: number;
+    maxPower: number;
+  };
+  stage: {
+    name: string;
+  };
+  fullName: string;
+  title: string;
+  progress: number;
+  nextRealmProgress: number | null;
   immortalStones: number;
   ascensions: number;
   immortalMarks: number;
   breakthroughSuccesses: number;
   breakthroughFailures: number;
   canBreakthrough: boolean;
+  breakthroughReady?: boolean;
+  breakthroughReadiness?: {
+    ready: boolean;
+    missing: string[];
+    targetRealmId: RealmId;
+    reason: 'ready' | 'not_ready' | 'max_realm' | 'missing_requirement';
+  };
+  cultivationAttainment: number;
+  mainMethodName: string;
+  knownBattleArtCount: number;
+  knownDivinePowerCount: number;
+  canonicalState?: PlayerCultivationState;
+  activeBuff?: string | null;
 }
 
 export interface DivinationCastResult {
@@ -113,6 +175,7 @@ export interface DivinationCastResult {
   realmAfter: string;
   realmChanged: boolean;
   newStage: string;
+  buff: DivinationBuff;
 }
 
 export interface BreakthroughSuccessResult {
