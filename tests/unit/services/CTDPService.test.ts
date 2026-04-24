@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import config from '../../../config/index.js';
+import AuxChain from '../../../src/models/AuxChain.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 import type {
   CompleteTaskResult,
   CreateTaskResult,
@@ -19,14 +22,23 @@ function createMockTaskService() {
   };
 }
 
+function createMockQueueService() {
+  return {
+    rescheduleReservation: vi.fn(),
+    cancelReservation: vi.fn()
+  };
+}
+
 // We'll lazy-import CTDPService after models are registered
 let CTDPService: typeof import('../../../src/services/CTDPService.js').default;
 
 describe('CTDPService', () => {
   let taskService: ReturnType<typeof createMockTaskService>;
+  let queueService: ReturnType<typeof createMockQueueService>;
   let ctdpService: InstanceType<typeof CTDPService>;
 
   const testUserId = 123456789;
+  const originalReservationDelay = config.linearDelay.defaultReservationDelay;
 
   // Helper: a minimal fake ITask returned by mock createTask
   const fakeTask = (overrides: Record<string, unknown> = {}) => ({
@@ -79,12 +91,17 @@ describe('CTDPService', () => {
 
   beforeEach(async () => {
     taskService = createMockTaskService();
+    queueService = createMockQueueService();
 
     // Dynamic import so the model is registered by the time the service loads
     const mod = await import('../../../src/services/CTDPService.js');
     CTDPService = mod.default;
 
-    ctdpService = new CTDPService(taskService as any);
+    ctdpService = new CTDPService(taskService as any, queueService as any);
+  });
+
+  afterEach(() => {
+    config.linearDelay.defaultReservationDelay = originalReservationDelay;
   });
 
   // ─── startMainTask ─────────────────────────────────────────────────────
@@ -161,6 +178,77 @@ describe('CTDPService', () => {
         true,
         'res_123'
       );
+    });
+  });
+
+  // ─── reservation lifecycle ─────────────────────────────────────────────
+
+  describe('reservation lifecycle', () => {
+    it('should cancel the queued reservation reminder when a reservation is fulfilled early', async () => {
+      const reservationId = 'res_cancel_on_start';
+      taskService.createTask.mockResolvedValue(fakeCreateResult({
+        taskId: 'task_reserved_001',
+        description: '预约任务',
+        duration: 25,
+        isReserved: true,
+        reservationId
+      }));
+      queueService.cancelReservation.mockResolvedValue(true);
+
+      await ctdpService.createReservation(testUserId, '预约任务', 25, reservationId);
+      await ctdpService.startReservedTask(testUserId, reservationId);
+
+      expect(queueService.cancelReservation).toHaveBeenCalledWith(reservationId);
+    });
+
+    it('should fall back to the unified default duration when pending reservation duration is absent', async () => {
+      const reservationId = 'res_default_duration_fallback';
+      taskService.createTask.mockResolvedValue(fakeCreateResult({
+        taskId: 'task_reserved_default_duration',
+        description: '预约任务',
+        duration: DEFAULT_TASK_DURATION_MINUTES,
+        isReserved: true,
+        reservationId
+      }));
+      queueService.cancelReservation.mockResolvedValue(true);
+
+      await ctdpService.createReservation(testUserId, '预约任务', 25, reservationId);
+      await AuxChain.updateOne(
+        { userId: testUserId, 'pendingReservation.reservationId': reservationId },
+        { $unset: { 'pendingReservation.duration': 1 } }
+      );
+
+      await ctdpService.startReservedTask(testUserId, reservationId);
+
+      expect(taskService.createTask).toHaveBeenCalledWith(
+        testUserId,
+        '预约任务',
+        DEFAULT_TASK_DURATION_MINUTES,
+        true,
+        reservationId
+      );
+    });
+
+    it('should derive pending reservation deadline from configured default delay', async () => {
+      config.linearDelay.defaultReservationDelay = 5 * 60;
+
+      const beforeCreate = Date.now();
+      const result = await ctdpService.createReservation(
+        testUserId,
+        '配置化预约',
+        25,
+        'res_configured_deadline'
+      );
+      const afterCreate = Date.now();
+
+      expect(result.pendingReservation).toBeDefined();
+
+      const deadlineAt = result.pendingReservation!.deadlineAt.getTime();
+      const expectedMin = beforeCreate + config.linearDelay.defaultReservationDelay * 1000;
+      const expectedMax = afterCreate + config.linearDelay.defaultReservationDelay * 1000;
+
+      expect(deadlineAt).toBeGreaterThanOrEqual(expectedMin);
+      expect(deadlineAt).toBeLessThanOrEqual(expectedMax);
     });
   });
 

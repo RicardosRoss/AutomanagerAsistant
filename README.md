@@ -14,7 +14,7 @@
 
 ### Overview
 
-A Telegram bot that combines scientific self-control theory with a gamified cultivation (修仙/Xianxia) theme. Complete focus tasks to earn spiritual power, advance through cultivation realms, divine your fortune with the I Ching Bagua system, and ultimately ascend to immortality.
+A Telegram bot that combines scientific self-control theory with a gamified cultivation (修仙/Xianxia) theme. Complete focus tasks to earn cultivation progress, advance through the Xuanjian six-realm ladder, and use Bagua divination as a spirit-stone side system instead of a shortcut for main progression.
 
 ### Core Principles
 
@@ -27,20 +27,20 @@ The bot is built on three scientific self-control theories:
 ### Features
 
 #### Task Management
-- Create focus tasks with custom durations (5-480 minutes, default 25 min)
+- Create focus tasks with custom durations (5-480 minutes, default 60 min)
 - Task chain system with streak tracking
 - 15-minute reservation system (reduces startup resistance)
 - Progress reminders at 25%, 50%, 75% completion
 - Daily statistics and historical tracking
 
 #### Cultivation System (Gamification)
-- **9 Cultivation Realms** - Progress from Qi Refining (炼气期) to Mahayana (大乘期)
-- **Spiritual Power** - Earned through completed tasks
-- **Immortal Stones** - In-game currency
-- **Bagua Divination** - I Ching-based mini-game with 8 trigrams
-- **Breakthrough (Tribulation)** - Attempt realm advancement with risk/reward
-- **Ascension** - Ultimate achievement (requires Mahayana + 50,000 power)
-- **Leaderboards** - Rankings by power, realm, and ascensions
+- **Xuanjian Six Realms** - 胎息 → 练气 → 筑基 → 紫府 → 金丹 → 元婴
+- **Cultivation Progress** - Main growth comes from completed focus tasks
+- **Cultivation Attainment** - Long-term insight resource that grows with streak milestones
+- **Spirit Stones** - Side-economy currency affected by encounters and divination
+- **Bagua Divination** - I Ching-based stone-only mini-game; it no longer grants direct power
+- **Deterministic Breakthroughs** - Realm advancement is gated by readiness and materials, not RNG success tables
+- **Leaderboards** - Rankings by progress and realm display
 
 #### Infrastructure
 - MongoDB with Mongoose ODM for data persistence
@@ -94,7 +94,8 @@ src/
 ├── bot.ts                    # Telegram bot core
 ├── config/
 │   ├── bot.ts                # Bot configuration
-│   ├── cultivation.ts        # Cultivation realm definitions
+│   ├── cultivation.ts        # Legacy compatibility facade
+│   ├── xuanjianCanonical.ts  # Xuanjian canonical config
 │   └── redis.ts              # Redis connection
 ├── database/
 │   └── connection.ts         # MongoDB connection
@@ -110,9 +111,14 @@ src/
 ├── services/
 │   ├── TaskService.ts        # Task lifecycle management
 │   ├── QueueService.ts       # Bull Queue scheduling
-│   ├── CultivationService.ts # Cultivation logic
+│   ├── CultivationService.ts # Canonical cultivation runtime integration
+│   ├── CultivationStateAdapter.ts # Legacy-to-canonical state adapter
+│   ├── CultivationRewardEngine.ts # Pure focus reward engine
+│   ├── BreakthroughEngine.ts # Pure breakthrough engine
 │   └── index.ts              # Service registry
 ├── types/                    # TypeScript type definitions
+│   ├── cultivationCanonical.ts # Canonical cultivation state/definition types
+│   └── ...
 └── utils/
     ├── constants.ts          # App constants
     ├── helpers.ts            # Utility functions
@@ -123,6 +129,14 @@ config/
 tests/                        # Vitest test suites
 scripts/                      # Deployment & utility scripts
 ```
+
+### Current Xuanjian Runtime
+
+- Canonical config: `src/config/xuanjianCanonical.ts`
+- Runtime state adapter: `src/services/CultivationStateAdapter.ts`
+- Reward engine: `src/services/CultivationRewardEngine.ts`
+- Breakthrough engine: `src/services/BreakthroughEngine.ts`
+- Migration dry-run: `npm run migrate:xuanjian-cultivation -- --dry-run`
 
 ### Getting Started
 
@@ -237,7 +251,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ### 项目简介
 
-一个将科学自控力理论与修仙游戏化主题相结合的 Telegram 机器人。完成专注任务获得灵力，提升修仙境界，通过八卦占卜系统卜算天机，最终飞升成仙。
+一个将科学自控力理论与修仙游戏化主题相结合的 Telegram 机器人。完成专注任务获得修为，沿玄鉴六境体系推进主线成长；八卦占卜只影响灵石盈亏，不再绕过“专注是主修为来源”的核心规则。
 
 ### 核心原理
 
@@ -250,20 +264,20 @@ MIT License - see [LICENSE](LICENSE) for details.
 ### 功能特性
 
 #### 任务管理
-- 创建专注任务，支持自定义时长（5-480 分钟，默认 25 分钟）
+- 创建专注任务，支持自定义时长（5-480 分钟，默认 60 分钟）
 - 任务链系统，连击追踪
 - 15 分钟预约系统（降低启动阻力）
 - 25%、50%、75% 进度提醒
 - 每日统计与历史追踪
 
 #### 修仙系统（游戏化）
-- **九大境界** - 从炼气期逐步修炼至大乘期
-- **灵力** - 通过完成任务获得
-- **仙石** - 游戏内货币
-- **八卦占卜** - 基于易经的八种卦象小游戏
-- **渡劫突破** - 尝试境界提升，伴随风险与回报
-- **飞升** - 终极成就（需大乘期 + 50,000 灵力）
-- **排行榜** - 灵力榜、境界榜、飞升榜
+- **玄鉴六境** - 胎息 → 练气 → 筑基 → 紫府 → 金丹 → 元婴
+- **修为** - 只通过完成专注任务稳定增长
+- **道行** - 随连续专注与关键节点长期成长
+- **灵石** - 奇遇与占卜影响的侧资源
+- **八卦占卜** - 只影响灵石与历史记录，不再直接改修为
+- **破境** - 基于条件、材料与 readiness 的 deterministic 突破
+- **排行榜** - 以当前修为与境界展示为主
 
 #### 基础设施
 - MongoDB + Mongoose ODM 数据持久化
@@ -317,7 +331,8 @@ src/
 ├── bot.ts                    # Telegram 机器人核心
 ├── config/
 │   ├── bot.ts                # 机器人配置
-│   ├── cultivation.ts        # 修仙境界定义
+│   ├── cultivation.ts        # legacy 兼容层
+│   ├── xuanjianCanonical.ts  # 玄鉴 canonical 配置
 │   └── redis.ts              # Redis 连接
 ├── database/
 │   └── connection.ts         # MongoDB 连接
@@ -333,9 +348,14 @@ src/
 ├── services/
 │   ├── TaskService.ts        # 任务生命周期管理
 │   ├── QueueService.ts       # Bull Queue 调度
-│   ├── CultivationService.ts # 修仙逻辑
+│   ├── CultivationService.ts # canonical 修仙运行时接线
+│   ├── CultivationStateAdapter.ts # legacy 壳字段→canonical 新开局适配
+│   ├── CultivationRewardEngine.ts # 纯收益引擎
+│   ├── BreakthroughEngine.ts # 纯破境引擎
 │   └── index.ts              # 服务注册
 ├── types/                    # TypeScript 类型定义
+│   ├── cultivationCanonical.ts # canonical 修仙状态与定义项
+│   └── ...
 └── utils/
     ├── constants.ts          # 应用常量
     ├── helpers.ts            # 工具函数
@@ -346,6 +366,14 @@ config/
 tests/                        # Vitest 测试套件
 scripts/                      # 部署与工具脚本
 ```
+
+### 当前玄鉴运行时入口
+
+- Canonical 配置：`src/config/xuanjianCanonical.ts`
+- 运行态适配器：`src/services/CultivationStateAdapter.ts`
+- 专注收益引擎：`src/services/CultivationRewardEngine.ts`
+- 破境引擎：`src/services/BreakthroughEngine.ts`
+- 迁移 dry-run：`npm run migrate:xuanjian-cultivation -- --dry-run`
 
 ### 快速开始
 

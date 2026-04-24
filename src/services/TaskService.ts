@@ -1,4 +1,5 @@
 import { DailyStats, TaskChain, User } from '../models/index.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 import { generateId } from '../utils/index.js';
 import logger from '../utils/logger.js';
 import QueueService from './QueueService.js';
@@ -30,7 +31,7 @@ class TaskService {
   async createTask(
     userId: number,
     description = '专注任务',
-    duration = 25,
+    duration = DEFAULT_TASK_DURATION_MINUTES,
     isReserved = false,
     reservationId: string | null = null
   ): Promise<CreateTaskResult> {
@@ -39,7 +40,7 @@ class TaskService {
       if (!user) {
         user = await User.create({
           userId,
-          settings: { defaultDuration: duration }
+          settings: { defaultDuration: DEFAULT_TASK_DURATION_MINUTES }
         });
         logger.info(`新用户创建: ${userId}`);
       }
@@ -183,7 +184,7 @@ class TaskService {
         try {
           cultivationReward = await this.cultivationService.awardCultivation(userId, actualDuration);
           logger.info(
-            `修仙奖励: +${cultivationReward.spiritualPower}灵力, +${cultivationReward.immortalStones}仙石`,
+            `修仙奖励: +${cultivationReward.spiritualPower}灵力, +${cultivationReward.immortalStones}灵石`,
             {
               userId,
               taskId,
@@ -198,13 +199,14 @@ class TaskService {
         logger.info(`任务完成成功: ${taskId}, 用户连击数: ${user.stats.currentStreak}`);
 
         await Promise.all([chain.save(), user.save()]);
+        const refreshedUser = await User.findOne({ userId });
         await this.cancelTaskReminders(taskId);
         await this.updateDailyStats(userId, task, true);
 
         return {
           chain,
           task,
-          user,
+          user: refreshedUser || user,
           wasChainBroken: false,
           cultivationReward
         };

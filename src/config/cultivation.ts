@@ -199,7 +199,7 @@ export const FORTUNE_EVENTS: FortuneEvent[] = [
     name: '天降灵石',
     probability: 0.05,
     reward: { type: 'stones', amount: 50 },
-    message: '✨ 天降灵石！获得 50 仙石！'
+    message: '✨ 天降灵石！获得 50 灵石！'
   },
   {
     id: 'enlightenment',
@@ -220,7 +220,7 @@ export const FORTUNE_EVENTS: FortuneEvent[] = [
     name: '古籍秘法',
     probability: 0.01,
     reward: { type: 'both', power: 200, stones: 100 },
-    message: '📜 发现古籍秘法！获得 200 灵力和 100 仙石！'
+    message: '📜 发现古籍秘法！获得 200 修为和 100 灵石！'
   }
 ];
 
@@ -279,6 +279,24 @@ export function canAttemptBreakthrough(spiritualPower: number, realm: Cultivatio
 export function calculateCultivationBonus(realm: CultivationRealm, stage: RealmStage): number {
   return realm.cultivationBonus * stage.bonus;
 }
+
+export {
+  XUANJIAN_BREAKTHROUGH_REQUIREMENTS,
+  XUANJIAN_MAIN_METHODS,
+  XUANJIAN_REALMS,
+  formatCanonicalRealmDisplay,
+  formatCanonicalStage,
+  getBreakthroughRequirement,
+  getCanonicalRealmByPower,
+  getCanonicalRealmStage,
+  getDurationBaseValue,
+  getGeneralAttainmentMultiplier,
+  getMainMethodById,
+  getRealmTemplateCoefficient,
+  getSameSchoolCultivationMultiplier
+} from './xuanjianCanonical.js';
+
+export { getRealmById as getCanonicalRealmById } from './xuanjianCanonical.js';
 
 export default {
   REALM_STAGES,

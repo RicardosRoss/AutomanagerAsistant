@@ -1,21 +1,56 @@
 import type TelegramBot from 'node-telegram-bot-api';
+import config from '../../config/index.js';
+import { formatCombatOutcomeLabel, formatInjuryLevelLabel } from '../config/xuanjianCombat.js';
+import {
+  DEFAULT_TASK_DURATION_MINUTES,
+  getMinTaskDurationMinutes,
+  MAX_TASK_DURATION_MINUTES
+} from '../types/taskDefaults.js';
 import logger from '../utils/logger.js';
 import {
   CALLBACK_PREFIXES,
   NOTIFICATION_TEMPLATES
 } from '../utils/constants.js';
+import { formatDurationFromSeconds } from '../utils/helpers.js';
 import type QueueService from '../services/QueueService.js';
 import type TaskService from '../services/TaskService.js';
 import type CTDPService from '../services/CTDPService.js';
+import type CultivationService from '../services/CultivationService.js';
+import type { CombatActionType } from '../types/cultivationCombat.js';
+import { formatEncounterRiskTierLabel, formatGuardianStyleLabel } from '../config/xuanjianCombat.js';
 
 type ErrorReporter = (userId: number, message: string) => Promise<void>;
 
 interface TaskCommandDependencies {
   bot: TelegramBot;
   taskService: TaskService;
+  cultivationService?: CultivationService;
   queueService: QueueService;
   ctdpService?: CTDPService;
   onError: ErrorReporter;
+}
+
+function formatCombatActionLabel(action: CombatActionType) {
+  switch (action) {
+    case 'attack':
+      return '攻伐';
+    case 'guard':
+      return '护体';
+    case 'movement':
+      return '身法';
+    case 'support':
+      return '辅法';
+    case 'burst':
+      return '神通爆发';
+    case 'control':
+      return '神通压制';
+    case 'ward':
+      return '神通护持';
+    case 'domain':
+      return '场域展开';
+    default:
+      return action;
+  }
 }
 
 class TaskCommandHandlers {
@@ -23,15 +58,18 @@ class TaskCommandHandlers {
 
   taskService: TaskService;
 
+  cultivationService: CultivationService | null;
+
   queueService: QueueService;
 
   ctdpService: CTDPService | null;
 
   onError: ErrorReporter;
 
-  constructor({ bot, taskService, queueService, ctdpService, onError }: TaskCommandDependencies) {
+  constructor({ bot, taskService, cultivationService, queueService, ctdpService, onError }: TaskCommandDependencies) {
     this.bot = bot;
     this.taskService = taskService;
+    this.cultivationService = cultivationService ?? null;
     this.queueService = queueService;
     this.ctdpService = ctdpService ?? null;
     this.onError = onError;
@@ -41,8 +79,9 @@ class TaskCommandHandlers {
     const parts = input.trim().split(' ');
     const lastPart = parts[parts.length - 1] ?? '';
     const duration = Number.parseInt(lastPart, 10);
+    const minDuration = getMinTaskDurationMinutes();
 
-    if (!Number.isNaN(duration) && duration >= 5 && duration <= 480) {
+    if (!Number.isNaN(duration) && duration >= minDuration && duration <= MAX_TASK_DURATION_MINUTES) {
       return {
         description: parts.slice(0, -1).join(' ') || '专注任务',
         duration
@@ -51,7 +90,7 @@ class TaskCommandHandlers {
 
     return {
       description: input || '专注任务',
-      duration: 25
+      duration: DEFAULT_TASK_DURATION_MINUTES
     };
   }
 
@@ -117,8 +156,9 @@ class TaskCommandHandlers {
 
   async handleReserveCommand(userId: number, taskInput: string): Promise<void> {
     try {
-      const { description, duration } = this.parseTaskInput(taskInput || '专注任务 25');
+      const { description, duration } = this.parseTaskInput(taskInput || `专注任务 ${DEFAULT_TASK_DURATION_MINUTES}`);
       const reservationId = `res_${Date.now()}_${userId}`;
+      const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
 
       if (this.ctdpService) {
         await this.ctdpService.createReservation(userId, description, duration, reservationId);
@@ -139,8 +179,8 @@ class TaskCommandHandlers {
         '⏰ **预约已设置**\n\n'
           + `📋 任务：${description}\n`
           + `⏱ 时长：${duration}分钟\n`
-          + '🕐 预约时间：15分钟后\n\n'
-          + '根据线性时延原理，15分钟的延迟将降低60%的启动阻力，'
+          + `🕐 预约时间：${reservationDelayText}后\n\n`
+          + `根据线性时延原理，${reservationDelayText}的延迟将降低60%的启动阻力，`
           + '让您在最佳状态下开始任务。',
         {
           parse_mode: 'Markdown',
@@ -173,32 +213,68 @@ class TaskCommandHandlers {
 
       if (result.cultivationReward) {
         const reward = result.cultivationReward;
-
-        message += `\n⚡ 获得灵力：${reward.spiritualPower} 点`;
-        if (reward.bonus > 1) {
-          message += ` (x${reward.bonus.toFixed(1)} 加成)`;
-        }
-
-        message += `\n💎 获得仙石：${reward.immortalStones} 颗`;
-
-        if (reward.fortuneEvent.message) {
-          message += `\n\n${reward.fortuneEvent.message}`;
-          if (reward.fortuneEvent.power > 0) {
-            message += `\n⚡ 额外灵力：+${reward.fortuneEvent.power}`;
-          }
-          if (reward.fortuneEvent.stones > 0) {
-            message += `\n💎 额外仙石：+${reward.fortuneEvent.stones}`;
+        message += `\n⚡ 获得修为：${reward.spiritualPower} 点`;
+        message += `\n🧭 道行变化：+${reward.cultivationAttainmentDelta ?? 0}`;
+        message += `\n💎 灵石变化：${reward.immortalStones >= 0 ? '+' : ''}${reward.immortalStones}`;
+        message += `\n📘 主修功法：${reward.mainMethodName ?? '未入门'}`;
+        if ((result.task.actualDuration ?? 0) < 60 && reward.spiritualPower === 0) {
+          if (reward.encounter?.type === 'none' && reward.immortalStones === 0) {
+            if ((reward.cultivationAttainmentDelta ?? 0) > 0) {
+              message += '\nℹ️ 本次专注未达到60分钟主修为门槛，未触发奇遇收益，已结算连专道行。';
+            } else {
+              message += '\nℹ️ 本次专注未达到60分钟主修为门槛，未触发主修为与奇遇收益。';
+            }
+          } else {
+            message += '\nℹ️ 本次专注未达到60分钟主修为门槛，奇遇与道行奖励已照常结算。';
           }
         }
-
-        message += `\n\n📊 当前境界：${reward.newRealm}（${reward.newStage}）`;
-        message += `\n⚡ 当前灵力：${reward.newSpiritualPower}`;
-
-        if (reward.realmChanged) {
-          message += `\n\n🎊🎊🎊\n✨ 恭喜！境界提升！\n${reward.oldRealm} → ${reward.newRealm}`;
+        if (reward.injuryRecovery?.applied && reward.injuryRecovery.summary) {
+          message += `\n${reward.injuryRecovery.summary}`;
         }
+        if (reward.encounter?.message) {
+          message += `\n\n${reward.encounter.message}`;
+        }
+        if (reward.encounter?.offerSummary) {
+          message += `\n💎 宝物：${reward.encounter.offerSummary.lootDisplayName}`;
+          message += `\n⚠️ 风险：${formatEncounterRiskTierLabel(reward.encounter.offerSummary.riskTier)}`;
+          message += `\n🧿 守宝风格：${formatGuardianStyleLabel(reward.encounter.offerSummary.guardianStyle)}`;
 
-        message += '\n\n💡 使用 /divination 占卜天机试试手气！';
+          await this.bot.sendMessage(userId, message, {
+            reply_markup: {
+              inline_keyboard: [[
+                {
+                  text: '🚶 离开',
+                  callback_data: `${CALLBACK_PREFIXES.ENCOUNTER_ABANDON}${reward.encounter.offerSummary.offerId}`
+                },
+                {
+                  text: '⚔️ 争抢',
+                  callback_data: `${CALLBACK_PREFIXES.ENCOUNTER_CONTEST}${reward.encounter.offerSummary.offerId}`
+                }
+              ]]
+            }
+          });
+
+          logger.logTaskAction(userId, taskId, 'completed_success_offer');
+          return;
+        }
+        if (reward.encounter?.combatSummary) {
+          message += `\n⚔️ 斗法结果：${formatCombatOutcomeLabel(reward.encounter.combatSummary.result)}`;
+          message += `\n🐺 对手：${reward.encounter.combatSummary.enemyName}`;
+          message += `\n📝 ${reward.encounter.combatSummary.summary}`;
+          if (reward.encounter.combatSummary.injuryLevel !== 'none') {
+            message += `\n🩹 伤势：${formatInjuryLevelLabel(reward.encounter.combatSummary.injuryLevel)}`;
+          }
+          if (reward.encounter.combatSummary.rounds && reward.encounter.combatSummary.rounds.length > 0) {
+            message += '\n\n🧪 详细战报：';
+            reward.encounter.combatSummary.rounds.forEach((round) => {
+              const actor = round.actor === 'player' ? '你' : '敌方';
+              message += `\n第${round.round}回合·${actor}：${formatCombatActionLabel(round.action)}，伤害 ${round.damage}`;
+            });
+          }
+        }
+        if (reward.breakthroughReady) {
+          message += '\n\n🌩️ 破境条件已满足，可使用 /breakthrough 尝试突破。';
+        }
       }
 
       await this.bot.sendMessage(userId, message);
@@ -211,6 +287,46 @@ class TaskCommandHandlers {
       }
 
       logger.logTaskAction(userId, taskId, 'completed_success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.onError(userId, message);
+    }
+  }
+
+  async handleAbandonEncounterCallback(userId: number, data: string): Promise<void> {
+    try {
+      if (!this.cultivationService) {
+        throw new Error('守宝奇遇服务未初始化');
+      }
+
+      const offerId = data.replace(CALLBACK_PREFIXES.ENCOUNTER_ABANDON, '');
+      const offer = await this.cultivationService.abandonEncounterOffer(userId, offerId);
+      await this.bot.sendMessage(userId, `🚶 你放弃了 ${offer.lootDisplayName}，此宝已随机缘散去。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.onError(userId, message);
+    }
+  }
+
+  async handleContestEncounterCallback(userId: number, data: string): Promise<void> {
+    try {
+      if (!this.cultivationService) {
+        throw new Error('守宝奇遇服务未初始化');
+      }
+
+      const offerId = data.replace(CALLBACK_PREFIXES.ENCOUNTER_CONTEST, '');
+      const encounter = await this.cultivationService.contestEncounterOffer(userId, offerId);
+
+      let message = `⚔️ 你决定争抢 ${encounter.offerSummary?.lootDisplayName ?? '机缘宝物'}！\n`;
+      message += `\n斗法结果：${formatCombatOutcomeLabel(encounter.combatSummary?.result ?? 'loss')}`;
+      message += `\n对手：${encounter.combatSummary?.enemyName ?? '守宝敌手'}`;
+      message += `\n战报：${encounter.combatSummary?.summary ?? '斗法落幕。'}`;
+
+      if (encounter.combatSummary?.injuryLevel && encounter.combatSummary.injuryLevel !== 'none') {
+        message += `\n伤势：${formatInjuryLevelLabel(encounter.combatSummary.injuryLevel)}`;
+      }
+
+      await this.bot.sendMessage(userId, message);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.onError(userId, message);
@@ -351,17 +467,19 @@ class TaskCommandHandlers {
         + '例如：\n'
         + '• `/task 学习编程 45`\n'
         + '• `/task 读书 30`\n'
-        + '• `/task 写作业` (默认25分钟)',
+        + `• \`/task 写作业\` (默认${DEFAULT_TASK_DURATION_MINUTES}分钟)`,
       { parse_mode: 'Markdown' }
     );
   }
 
   async sendReservePrompt(userId: number): Promise<void> {
+    const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
+
     await this.bot.sendMessage(
       userId,
       '⏰ **预约任务**\n\n'
         + '使用格式：`/reserve 任务描述 时长`\n\n'
-        + '15分钟的延迟将帮助您：\n'
+        + `${reservationDelayText}的延迟将帮助您：\n`
         + '• 降低60%启动阻力\n'
         + '• 做好心理准备\n'
         + '• 提高成功率',

@@ -1,6 +1,9 @@
 import type TelegramBot from 'node-telegram-bot-api';
+import config from '../../config/index.js';
 import type BotConfig from '../config/bot.js';
 import type TaskService from '../services/TaskService.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
+import { formatDurationFromSeconds } from '../utils/helpers.js';
 import User from '../models/User.js';
 
 type ErrorReporter = (userId: number, message: string) => Promise<void>;
@@ -42,22 +45,21 @@ class CoreCommandHandlers {
 ${botInfo.description}
 
 **📚 基础功能：**
-• 完成任务获得灵力和仙石
+• 完成任务获得修为和灵石
 • 提升境界，最终飞升成仙
 • 占卜天机，改变命运
 
 **⚡ 核心命令：**
 • \`/task 任务描述 时长\` - 闭关修炼
 • \`/realm\` - 查看境界和灵力
-• \`/divination <仙石>\` - 占卜天机
+• \`/divination <灵石>\` - 占卜天机
 • \`/rankings\` - 修仙排行榜
 • \`/help\` - 查看所有命令
 
-**🎯 修仙之路：**
-🌱 炼气期 → 🏔️ 筑基期 → 💊 金丹期 → 👶✨ 元婴期 → 🔮 化神期
-🌌 炼虚期 → ☯️ 合体期 → ⚡ 渡劫期 → 🌟 大乘期 → ☁️ 飞升成仙
+	**🎯 修仙之路：**
+	胎息 → 练气 → 筑基 → 紫府 → 金丹 → 元婴
 
-开始你的修仙之旅吧！💪`;
+	开始你的修仙之旅吧！💪`;
 
     await this.bot.sendMessage(userId, welcomeMessage, {
       parse_mode: 'Markdown',
@@ -75,18 +77,19 @@ ${botInfo.description}
 
   async handleHelpCommand(userId: number): Promise<void> {
     const commands = this.config.getSupportedCommands();
+    const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
     const helpText = `📚 <b>命令帮助</b>
 
 ${commands.map((cmd) => `/${cmd.command} - ${cmd.description.replace(/</g, '&lt;').replace(/>/g, '&gt;')}`).join('\n')}
 
 <b>使用示例：</b>
 <code>/task 学习Python 45</code> - 创建45分钟学习任务
-<code>/task 写作业</code> - 创建默认25分钟任务
-<code>/reserve 准备考试 60</code> - 预约60分钟后开始
+<code>/task 写作业</code> - 创建默认${DEFAULT_TASK_DURATION_MINUTES}分钟任务
+<code>/reserve 准备考试 60</code> - 预约一个时长60分钟的任务
 
 <b>重要提醒：</b>
 🔴 <b>神圣座位原理</b> - 任何任务失败都会重置所有进度
-⏰ <b>15分钟预约</b> - 降低60%的启动阻力
+⏰ <b>${reservationDelayText}预约</b> - 降低60%的启动阻力
 
 如需更多帮助，请查看 /settings 进行个性化配置。`;
 
@@ -261,6 +264,8 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description.replace(/</g, '&lt;
     }
 
     if (text.includes('任务') || text.includes('专注') || text.includes('学习') || text.includes('工作')) {
+      const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
+
       await this.bot.sendMessage(
         userId,
         `看起来您想创建一个任务！\n\n`
@@ -270,8 +275,14 @@ ${commands.map((cmd) => `/${cmd.command} - ${cmd.description.replace(/</g, '&lt;
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [[
-              { text: '🚀 立即创建25分钟任务', callback_data: `create_task:${text}:25` },
-              { text: '⏰ 预约15分钟后开始', callback_data: `reserve_task:${text}:25` }
+              {
+                text: `🚀 立即创建${DEFAULT_TASK_DURATION_MINUTES}分钟任务`,
+                callback_data: `create_task:${text}:${DEFAULT_TASK_DURATION_MINUTES}`
+              },
+              {
+                text: `⏰ 预约${reservationDelayText}后开始`,
+                callback_data: `reserve_task:${text}:${DEFAULT_TASK_DURATION_MINUTES}`
+              }
             ]]
           }
         }

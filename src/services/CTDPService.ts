@@ -1,6 +1,8 @@
 import { AuxChain, MainChain } from '../models/index.js';
+import config from '../../config/index.js';
 import { generateId } from '../utils/index.js';
 import logger from '../utils/logger.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 import type { AuxChainDocument, ITask, MainChainDocument, NodeLevel } from '../types/models.js';
 import type {
   CompleteMainTaskResult,
@@ -259,7 +261,7 @@ class CTDPService {
       }
 
       const reservationDescription = description ?? auxChain.pendingReservation.signal ?? '预约任务';
-      const reservationDuration = duration ?? auxChain.pendingReservation.duration ?? 25;
+      const reservationDuration = duration ?? auxChain.pendingReservation.duration ?? DEFAULT_TASK_DURATION_MINUTES;
 
       // 2. Create a main chain task bound to this reservation
       const startResult = await this.startMainTask(userId, {
@@ -282,11 +284,25 @@ class CTDPService {
       auxChain.pendingReservation = undefined;
 
       const savedAuxChain = await auxChain.save();
+      let queueCancelled = false;
+
+      if (this.queueService) {
+        try {
+          queueCancelled = await this.queueService.cancelReservation(reservationId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn(`CTDP startReservedTask queue cancellation failed: ${message}`, {
+            userId,
+            reservationId
+          });
+        }
+      }
 
       logger.info(`CTDP startReservedTask: reservation ${reservationId} fulfilled for user ${userId}`, {
         userId,
         reservationId,
-        taskId: startResult.task.taskId
+        taskId: startResult.task.taskId,
+        queueCancelled
       });
 
       return {
@@ -427,7 +443,7 @@ class CTDPService {
         signal: description,
         duration,
         createdAt,
-        deadlineAt: new Date(createdAt.getTime() + 15 * 60 * 1000),
+        deadlineAt: new Date(createdAt.getTime() + config.linearDelay.defaultReservationDelay * 1000),
         status: 'pending' as const
       };
 

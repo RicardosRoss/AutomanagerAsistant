@@ -1,6 +1,8 @@
 import Queue from 'bull';
 import type TelegramBot from 'node-telegram-bot-api';
 import config from '../../config/index.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
+import { formatDurationFromSeconds } from '../utils/helpers.js';
 import type {
   CompletionReminderData,
   ProgressReminderData,
@@ -232,7 +234,7 @@ class QueueService {
     userId: number,
     reservationId: string,
     taskDescription: string,
-    duration = 25
+    duration = DEFAULT_TASK_DURATION_MINUTES
   ): Promise<BullJobId | undefined> {
     try {
       if (!this.isInitialized) {
@@ -241,6 +243,7 @@ class QueueService {
 
       const reservationQueue = this.getReservationQueue();
       const delay = config.linearDelay.defaultReservationDelay * 1000;
+      const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
       const jobData: ReservationJobData = {
         userId,
         reservationId,
@@ -255,7 +258,7 @@ class QueueService {
         jobId: reservationId
       });
 
-      console.log(`⏰ 15分钟预约已安排: ${reservationId} for user ${userId}, 延迟: ${delay / 1000}秒`);
+      console.log(`⏰ ${reservationDelayText}预约已安排: ${reservationId} for user ${userId}, 延迟: ${delay / 1000}秒`);
       return job.id;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -402,10 +405,11 @@ class QueueService {
     }
 
     try {
+      const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
       const message =
         '⏰ 预约时间到！\n\n'
         + '🧠 根据线性时延原理，现在是开始任务的最佳时机。\n'
-        + `⏳ ${config.linearDelay.defaultReservationDelay / 60}分钟的延迟已经大大降低了启动阻力。\n\n`
+        + `⏳ ${reservationDelayText}的延迟已经大大降低了启动阻力。\n\n`
         + `📋 任务：${taskDescription}\n`
         + `⏱ 时长：${duration}分钟\n\n`
         + '准备好开始了吗？';

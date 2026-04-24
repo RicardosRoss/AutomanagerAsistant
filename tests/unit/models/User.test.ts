@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { User } from '../../../src/models/index.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 
 describe('User Model', () => {
   describe('用户创建和验证', () => {
@@ -15,19 +16,31 @@ describe('User Model', () => {
       await user.save();
 
       expect(user.userId).toBe(userData.userId);
-      expect(user.settings.defaultDuration).toBe(25);
+      expect(user.settings.defaultDuration).toBe(DEFAULT_TASK_DURATION_MINUTES);
       expect(user.settings.reminderEnabled).toBe(true);
       expect(user.stats.totalTasks).toBe(0);
       expect(user.stats.currentStreak).toBe(0);
       expect(user.stats.longestStreak).toBe(0);
     });
 
-    test('用户ID应该是唯一的', async () => {
-      const user1 = new User({ userId: 999999 });
-      await user1.save();
+    test('findOrCreate 应使用统一默认任务时长', async () => {
+      const user = await User.findOrCreate({ userId: 123457 });
 
-      const user2 = new User({ userId: 999999 });
-      await expect(user2.save()).rejects.toThrow();
+      expect(user.settings.defaultDuration).toBe(DEFAULT_TASK_DURATION_MINUTES);
+    });
+
+    test('用户ID应该是唯一的', async () => {
+      await User.init();
+
+      await expect(
+        User.collection.insertMany(
+          [
+            { userId: 999999 },
+            { userId: 999999 }
+          ],
+          { ordered: true }
+        )
+      ).rejects.toMatchObject({ code: 11000 });
     });
   });
 
@@ -90,5 +103,50 @@ describe('User Model', () => {
 
       expect(user.stats.todayCompletedTasks).toBe(0);
     });
+  });
+
+  test('initializes inert V2 phase-a cultivation fields for new users', async () => {
+    const user = await User.create({ userId: 99001, username: 'v2-defaults' });
+
+    expect(user.cultivation.canonical?.state.realmSubStageId).toBe('realmSubStage.taixi.xuanjing');
+    expect(user.cultivation.canonical?.state.branchCultivationAttainments).toEqual({});
+    expect(user.cultivation.canonical?.state.battleLoadout.activeSupportArtId).toBeNull();
+    expect(user.cultivation.canonical?.state.cooldowns).toEqual({});
+    expect(user.cultivation.canonical?.state.combatHistorySummary).toEqual([]);
+  });
+
+  test('ensureCanonicalCultivation should expose inert V2 fields for older canonical snapshots', async () => {
+    const user = await User.create({ userId: 99002, username: 'legacy-canonical' });
+
+    await User.collection.updateOne(
+      { _id: user._id },
+      {
+        $unset: {
+          'cultivation.canonical.state.realmSubStageId': '',
+          'cultivation.canonical.state.branchCultivationAttainments': '',
+          'cultivation.canonical.state.battleLoadout': '',
+          'cultivation.canonical.state.cooldowns': '',
+          'cultivation.canonical.state.combatFlags': '',
+          'cultivation.canonical.state.combatHistorySummary': ''
+        }
+      }
+    );
+
+    const refreshed = await User.findOne({ userId: 99002 });
+    expect(refreshed).not.toBeNull();
+
+    const canonical = refreshed!.ensureCanonicalCultivation();
+
+    expect(canonical.state.realmSubStageId).toBe('realmSubStage.taixi.xuanjing');
+    expect(canonical.state.branchCultivationAttainments).toEqual({});
+    expect(canonical.state.battleLoadout).toEqual({
+      equippedBattleArtIds: ['art.basic_guarding_hand'],
+      equippedDivinePowerIds: [],
+      equippedArtifactIds: [],
+      activeSupportArtId: null
+    });
+    expect(canonical.state.cooldowns).toEqual({});
+    expect(canonical.state.combatFlags).toEqual({});
+    expect(canonical.state.combatHistorySummary).toEqual([]);
   });
 });

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../../../src/services/TaskService.js';
+import CultivationService from '../../../src/services/CultivationService.js';
 import { TaskChain } from '../../../src/models/index.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 
 /**
  * Backdate a task's startTime so the duration check passes on complete.
@@ -37,14 +39,19 @@ describe('TaskService', () => {
 
     cultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: null,
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -86,12 +93,22 @@ describe('TaskService', () => {
 
     test('用户不存在时应自动创建', async () => {
       const userId = 111222333;
-      const result = await taskService.createTask(userId, '新用户任务', 25);
+      const result = await taskService.createTask(userId, '新用户任务');
 
       expect(result.user).toBeDefined();
       expect(result.user.userId).toBe(userId);
       expect(result.chain).toBeDefined();
       expect(result.task).toBeDefined();
+      expect(result.task.duration).toBe(DEFAULT_TASK_DURATION_MINUTES);
+      expect(result.user.settings.defaultDuration).toBe(DEFAULT_TASK_DURATION_MINUTES);
+    });
+
+    test('新用户首个任务显式指定时长时，不应污染统一默认时长', async () => {
+      const userId = 222333444;
+      const result = await taskService.createTask(userId, '临时短任务', 30);
+
+      expect(result.task.duration).toBe(30);
+      expect(result.user.settings.defaultDuration).toBe(DEFAULT_TASK_DURATION_MINUTES);
     });
   });
 
@@ -133,6 +150,27 @@ describe('TaskService', () => {
       expect(status.currentTask).toBeDefined();
       expect(status.todayStats).toBeUndefined();
       expect(getDailyStatsSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('默认60分钟任务与玄鉴主修为主循环', () => {
+    test('默认任务完成后应进入主修为模板并获得修为', async () => {
+      const userId = 246813579;
+      const realCultivationService = new CultivationService();
+      const integratedTaskService = new TaskService(queueService, realCultivationService);
+
+      vi.spyOn(Math, 'random').mockReturnValue(0.88);
+
+      const taskResult = await integratedTaskService.createTask(userId, '默认专注任务');
+      expect(taskResult.task.duration).toBe(DEFAULT_TASK_DURATION_MINUTES);
+
+      await backdateTask(taskResult.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
+      const result = await integratedTaskService.completeTask(userId, taskResult.task.taskId, true);
+
+      expect(result.cultivationReward).not.toBeNull();
+      expect(result.cultivationReward?.spiritualPower).toBeGreaterThan(0);
+      expect(result.user.cultivation.spiritualPower).toBe(result.cultivationReward?.newSpiritualPower);
+      expect(result.user.cultivation.spiritualPower).toBeGreaterThan(0);
     });
   });
 });

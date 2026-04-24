@@ -142,7 +142,7 @@ divinationHistorySchema.methods.formatDisplay = function formatDisplay(this: Div
   return (
     `${this.guaEmoji} ${this.guaName} - ${this.meaning}\n` +
     `💰 下注：${this.betAmount} | ${resultEmoji} 结果：${resultText}\n` +
-    `📊 仙石：${this.stonesAfter}`
+    `📊 灵石：${this.stonesAfter}`
   );
 };
 

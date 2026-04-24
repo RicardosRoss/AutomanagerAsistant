@@ -192,6 +192,46 @@ describe('SelfControlBot callback query handling', () => {
 
     expect(bot.bot.answerCallbackQuery).toHaveBeenCalledTimes(1);
   });
+
+  test('routes guardian encounter callbacks to TaskCommandHandlers', async () => {
+    const answerCallbackQuery = vi.fn().mockResolvedValue(undefined);
+    const handleAbandonEncounterCallback = vi.fn().mockResolvedValue(undefined);
+    const handleContestEncounterCallback = vi.fn().mockResolvedValue(undefined);
+    const bot = Object.create(SelfControlBot.prototype) as SelfControlBot & {
+      bot: {
+        answerCallbackQuery: ReturnType<typeof vi.fn>;
+      };
+      taskHandlers: {
+        handleAbandonEncounterCallback: ReturnType<typeof vi.fn>;
+        handleContestEncounterCallback: ReturnType<typeof vi.fn>;
+      };
+    };
+
+    bot.bot = {
+      answerCallbackQuery
+    };
+    bot.taskHandlers = {
+      handleAbandonEncounterCallback,
+      handleContestEncounterCallback
+    };
+
+    await bot.handleCallbackQuery({
+      id: 'guardian-contest',
+      from: { id: 5515965469 },
+      data: 'encounter_contest_offer_1',
+      message: { message_id: 901 }
+    } as never);
+
+    await bot.handleCallbackQuery({
+      id: 'guardian-abandon',
+      from: { id: 5515965469 },
+      data: 'encounter_abandon_offer_1',
+      message: { message_id: 902 }
+    } as never);
+
+    expect(handleContestEncounterCallback).toHaveBeenCalledWith(5515965469, 'encounter_contest_offer_1');
+    expect(handleAbandonEncounterCallback).toHaveBeenCalledWith(5515965469, 'encounter_abandon_offer_1');
+  });
 });
 
 describe('SelfControlBot polling error handling', () => {

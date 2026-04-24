@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import config from '../../config/index.js';
 import logger from '../utils/logger.js';
+import { formatDurationFromSeconds } from '../utils/helpers.js';
 
 interface RuntimeOptions {
   polling: boolean;
@@ -98,29 +99,37 @@ class BotConfig {
   }
 
   getSupportedCommands(): TelegramBot.BotCommand[] {
+    const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
+
     return [
       { command: 'start', description: '开始使用自控力助手' },
       { command: 'help', description: '查看帮助信息' },
       { command: 'task', description: '创建专注任务 - 用法: /task <描述> [时长(分钟)]' },
-      { command: 'reserve', description: '预约15分钟后开始任务' },
+      { command: 'reserve', description: `预约${reservationDelayText}后开始任务` },
       { command: 'status', description: '查看当前状态和进度' },
       { command: 'stats', description: '查看今日统计数据' },
       { command: 'week', description: '查看本周统计报告' },
       { command: 'settings', description: '管理个人设置' },
       { command: 'patterns', description: '查看 RSIP 定式树' },
       { command: 'precedents', description: '查看下必为例判例' },
-      { command: 'reserve_status', description: '查看辅助链预约状态' }
+      { command: 'reserve_status', description: '查看辅助链预约状态' },
+      { command: 'loadout', description: '查看当前战斗构筑' },
+      { command: 'equip_art', description: '设置主战法门 - 用法: /equip_art <id[,id...]>' },
+      { command: 'equip_support', description: '设置辅助法门 - 用法: /equip_support <id|none>' },
+      { command: 'equip_power', description: '设置神通构筑 - 用法: /equip_power <id[,id...]|none>' }
     ];
   }
 
   getBotInfo(): BotInfo {
+    const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
+
     return {
       name: 'Telegram自控力助手',
       version: config.app.version,
       description: '基于科学自控力理论的专注任务管理机器人',
       features: [
         '🎯 神圣座位原理：失败重置所有进度',
-        '⏰ 15分钟预约机制：降低启动阻力',
+        `⏰ ${reservationDelayText}预约机制：降低启动阻力`,
         '📊 详细统计分析：追踪专注表现',
         '🏆 成就系统：连击记录和等级提升',
         '📅 每日/周报：专注数据可视化'

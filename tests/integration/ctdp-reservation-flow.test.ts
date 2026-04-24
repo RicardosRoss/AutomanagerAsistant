@@ -41,14 +41,19 @@ describe('CTDP 预约兑现协议', () => {
 
     const cultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -162,14 +167,19 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
 
     const mockCultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -216,14 +226,19 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     };
     const mockCultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -267,14 +282,19 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     };
     const mockCultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -317,14 +337,19 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     };
     const mockCultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
@@ -377,14 +402,19 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     };
     const mockCultivationService = {
       awardCultivation: vi.fn().mockResolvedValue({
-        spiritualPower: 25,
-        immortalStones: 12,
+        spiritualPower: 2,
+        immortalStones: 8,
         bonus: 1,
-        fortuneEvent: { power: 0, stones: 0, message: null },
-        newRealm: '炼气期',
-        newStage: '初期',
-        newSpiritualPower: 25,
-        realmChanged: false
+        cultivationAttainment: 1,
+        cultivationAttainmentDelta: 1,
+        mainMethodName: '玄门吐纳法',
+        encounter: { type: 'stones', message: '偶得灵石', spiritStoneDelta: 8, obtainedDefinitionIds: [] },
+        fortuneEvent: { power: 0, stones: 8, message: '偶得灵石' },
+        newRealm: '胎息',
+        newStage: '玄景',
+        newSpiritualPower: 2,
+        realmChanged: false,
+        breakthroughReady: false
       })
     };
 
