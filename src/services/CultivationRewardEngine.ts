@@ -236,15 +236,21 @@ export function rollFocusEncounter(
   // Negative encounterBonus means MORE encounters (threshold goes down)
   const encounterShift = buff?.encounterBonus ?? 0;
   const qualityShift = buff?.qualityBonus ?? 0;
+  const stonesLossThreshold = FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.stones_loss')?.threshold ?? 0.93;
+  const combatThreshold = FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.combat_trial')?.threshold ?? 0.995;
 
   const adjustedTable = FOCUS_ENCOUNTER_TABLE.map((entry) => {
     if (entry.id === 'encounter.none') {
       // Shift nothing threshold: clamped to [0.3, 0.95]
       return { ...entry, threshold: Math.min(0.95, Math.max(0.3, entry.threshold + encounterShift)) };
     }
-    if (entry.id === 'encounter.material_drop' || entry.id === 'encounter.pill_drop') {
-      // Quality bonus shifts item thresholds down (makes items more likely)
-      return { ...entry, threshold: Math.min(1.0, Math.max(entry.threshold - qualityShift, entry.threshold)) };
+    if (entry.id === 'encounter.material_drop') {
+      // Positive quality bonus expands the material window; negative bonus shrinks it.
+      const shiftedThreshold = entry.threshold + qualityShift;
+      return {
+        ...entry,
+        threshold: Math.min(combatThreshold, Math.max(stonesLossThreshold, shiftedThreshold))
+      };
     }
     return entry;
   });

@@ -260,4 +260,33 @@ describe('CultivationRewardEngine', () => {
       riskTier: expect.stringMatching(/ordinary|tough|dangerous|deadly/)
     });
   });
+
+  test('positive quality buff should convert edge combat rolls into material drops', () => {
+    const neutral = rollFocusEncounter(() => 0.98, 'realm.taixi', null);
+    const boosted = rollFocusEncounter(() => 0.98, 'realm.taixi', {
+      encounterBonus: 0,
+      qualityBonus: 0.03,
+      expiresAfterNextFocus: true,
+      label: '测试增益',
+      description: '测试增益'
+    });
+
+    expect(neutral.type).toBe('combat');
+    expect(boosted.type).toBe('item');
+    expect(boosted.obtainedDefinitionIds).toContain('material.yellow_breakthrough_token');
+  });
+
+  test('negative quality buff should shrink material window and keep combat rolls as combat', () => {
+    const neutral = rollFocusEncounter(() => 0.965, 'realm.taixi', null);
+    const lowered = rollFocusEncounter(() => 0.965, 'realm.taixi', {
+      encounterBonus: 0,
+      qualityBonus: -0.03,
+      expiresAfterNextFocus: true,
+      label: '测试减益',
+      description: '测试减益'
+    });
+
+    expect(neutral.type).toBe('item');
+    expect(lowered.type).toBe('combat');
+  });
 });

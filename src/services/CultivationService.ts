@@ -930,6 +930,7 @@ class CultivationService {
         state: canonical.state,
         forcedEncounterType: devEncounterScript?.type ?? null
       });
+      const didRollEncounter = resolution.basePowerGain > 0 || Boolean(devEncounterScript?.type);
       const injuryRecovery = resolveInjuryRecovery({
         duration,
         rawPowerGain: resolution.totalPowerGain,
@@ -977,8 +978,9 @@ class CultivationService {
         combatAttainmentDelta = appliedCombat.combatAttainmentDelta;
         encounter = appliedCombat.encounter;
       }
-      // Consume divination buff after focus encounter
-      canonical.state.pendingDivinationBuff = null;
+      if (didRollEncounter && resolution.divinationBuffUsed) {
+        canonical.state.pendingDivinationBuff = null;
+      }
       if (devEncounterScript) {
         const nextRemainingUses = devEncounterScript.remainingUses - 1;
         if (nextRemainingUses <= 0) {

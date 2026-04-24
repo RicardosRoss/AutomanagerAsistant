@@ -339,9 +339,23 @@ describe('玄鉴主循环集成测试', () => {
     expect(refreshed?.cultivation.canonical.state.combatHistorySummary).toHaveLength(1);
   });
 
-  test('1 分钟任务在无强制脚本时，不应触发奇遇收益', async () => {
+  test('1 分钟任务在无强制脚本时，不应触发奇遇收益且不应消耗卜卦 buff', async () => {
     const userId = 602013;
     const created = await taskService.createTask(userId, 'phase-c short no-encounter', 1);
+    const user = await User.findOne({ userId });
+    expect(user).not.toBeNull();
+    const canonical = user!.ensureCanonicalCultivation();
+    canonical.state.currentPower = 5;
+    canonical.state.pendingDivinationBuff = {
+      encounterBonus: -0.1,
+      qualityBonus: 0.03,
+      expiresAfterNextFocus: true,
+      label: '吉运',
+      description: '下次专注奇遇概率+10%，掉率+3%'
+    };
+    user!.replaceCanonicalCultivation(canonical);
+    user!.syncLegacyCultivationShell();
+    await user!.save();
     vi.spyOn(Math, 'random').mockReturnValue(0.995);
 
     await backdateTask(created.task.taskId, 1);
@@ -352,8 +366,12 @@ describe('玄鉴主循环集成测试', () => {
     expect(completed.cultivationReward?.spiritualPower).toBe(0);
     expect(completed.cultivationReward?.immortalStones).toBe(0);
     expect(completed.cultivationReward?.encounter?.type).toBe('none');
-    expect(refreshed?.cultivation.canonical.state.currentPower).toBe(0);
+    expect(refreshed?.cultivation.canonical.state.currentPower).toBe(5);
     expect(refreshed?.cultivation.canonical.state.combatHistorySummary).toHaveLength(0);
+    expect(refreshed?.cultivation.canonical.state.pendingDivinationBuff).toMatchObject({
+      label: '吉运',
+      qualityBonus: 0.03
+    });
   });
 
   test('60 分钟任务触发 combat 奇遇时，应同时获得主修为与战斗侧奖励', async () => {
