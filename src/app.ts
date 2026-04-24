@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import SelfControlBot from './bot.js';
 import databaseConnection from './database/connection.js';
 import redisConnection from './config/redis.js';
+import ContentNameResolver from './services/ContentNameResolver.js';
 import config from '../config/index.js';
 import logger from './utils/logger.js';
 
@@ -15,6 +16,8 @@ class SelfControlApp {
 
   redis: typeof redisConnection;
 
+  contentNameResolver: ContentNameResolver;
+
   server: Server | null;
 
   constructor() {
@@ -22,6 +25,7 @@ class SelfControlApp {
     this.bot = null;
     this.db = databaseConnection;
     this.redis = redisConnection;
+    this.contentNameResolver = new ContentNameResolver();
     this.server = null;
   }
 
@@ -35,6 +39,7 @@ class SelfControlApp {
 
       await this.connectDatabase();
       await this.connectRedis();
+      await this.warmupContentNames();
       await this.setupExpress();
       await this.startBot();
       await this.startServer();
@@ -72,6 +77,17 @@ class SelfControlApp {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error('Redis连接失败', { error: message });
+      throw error;
+    }
+  }
+
+  async warmupContentNames(): Promise<void> {
+    try {
+      await this.contentNameResolver.warmup();
+      logger.info('✅ 玄鉴内容名称缓存预热完成');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error('玄鉴内容名称缓存预热失败', { error: message });
       throw error;
     }
   }
@@ -132,7 +148,9 @@ class SelfControlApp {
 
   async startBot(): Promise<void> {
     try {
-      this.bot = new SelfControlBot();
+      this.bot = new SelfControlBot({
+        contentNameResolver: this.contentNameResolver
+      });
       await this.bot.start();
       logger.info('✅ Telegram Bot启动成功');
     } catch (error) {

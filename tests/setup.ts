@@ -4,6 +4,8 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 
 let mongod: MongoMemoryServer;
 
+process.env.BOT_TOKEN ??= '123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi';
+
 beforeAll(async () => {
   mongod = await MongoMemoryServer.create({
     binary: {

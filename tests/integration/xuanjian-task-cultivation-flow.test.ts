@@ -137,6 +137,99 @@ describe('玄鉴主循环集成测试', () => {
     expect(refreshed?.cultivation.canonical.state.combatFlags).toEqual({});
   });
 
+  test('守宝奇遇应先保存 pending offer，而不是立刻结算战斗或发放宝物', async () => {
+    const userId = 602101;
+    const cultivationService = new CultivationService();
+    const created = await taskService.createTask(userId, 'phase-e guardian offer', 60);
+
+    await cultivationService.setDevEncounterScript(userId, 'offer', 1);
+    vi.spyOn(Math, 'random').mockReturnValue(0.15);
+
+    await backdateTask(created.task.taskId, 60);
+    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const refreshed = await User.findOne({ userId }).lean();
+
+    expect(completed.cultivationReward?.encounter?.type).toBe('offer');
+    expect(completed.cultivationReward?.immortalStones).toBe(0);
+    expect(completed.cultivationReward?.encounter?.combatSummary).toBeUndefined();
+    expect(refreshed?.cultivation.canonical.state.combatFlags.pendingEncounterOffer).toMatchObject({
+      offerId: expect.any(String),
+      lootDisplayName: expect.any(String)
+    });
+    expect(refreshed?.cultivation.canonical.state.inventoryItemIds).toEqual([]);
+  });
+
+  test('放弃守宝奇遇应无伤结束并清空 pending offer', async () => {
+    const userId = 602102;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'guardian-resolution' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.combatFlags.pendingEncounterOffer = {
+      offerId: 'offer_resolution_1',
+      lootDefinitionId: 'manual.art.returning_origin_shield',
+      lootDisplayName: '归元盾传承玉简',
+      lootTier: '玄',
+      guardianStyle: 'hybrid',
+      riskTier: 'dangerous',
+      guardianEncounterId: 'generated.encounter.guardian.hybrid.99',
+      guardianName: '镇宝异种',
+      createdAt: new Date('2026-04-23T08:00:00.000Z'),
+      grantMode: 'deferred_battle_art',
+      obtainedDefinitionIdsOnWin: ['manual.art.returning_origin_shield'],
+      deferredContentId: 'art.returning_origin_shield'
+    };
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const abandoned = await cultivationService.abandonEncounterOffer(userId, 'offer_resolution_1');
+    expect(abandoned.lootDisplayName).toBe('归元盾传承玉简');
+
+    const afterAbandon = await User.findOne({ userId }).lean();
+    expect(afterAbandon?.cultivation.canonical.state.combatFlags.pendingEncounterOffer).toBeUndefined();
+    expect(afterAbandon?.cultivation.canonical.state.injuryState.level).toBe('none');
+  });
+
+  test('争抢高阶传承成功后应只入包待参悟，不应立刻写入 knownBattleArtIds', async () => {
+    const userId = 602103;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'guardian-deferred-art' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.currentPower = 110;
+    canonical.state.realmId = 'realm.taixi';
+    canonical.state.realmSubStageId = 'realmSubStage.taixi.lingchu';
+    canonical.state.knownBattleArtIds = ['art.basic_guarding_hand', 'art.cloud_step'];
+    canonical.state.equippedBattleArtIds = ['art.cloud_step'];
+    canonical.state.battleLoadout.equippedBattleArtIds = ['art.cloud_step'];
+    canonical.state.combatFlags.pendingEncounterOffer = {
+      offerId: 'offer_deferred_1',
+      lootDefinitionId: 'manual.art.returning_origin_shield',
+      lootDisplayName: '归元盾传承玉简',
+      lootTier: '玄',
+      guardianStyle: 'guard',
+      riskTier: 'dangerous',
+      guardianEncounterId: 'generated.encounter.guardian.guard.4',
+      guardianName: '守宝甲兽',
+      createdAt: new Date('2026-04-23T08:00:00.000Z'),
+      grantMode: 'deferred_battle_art',
+      obtainedDefinitionIdsOnWin: ['manual.art.returning_origin_shield'],
+      deferredContentId: 'art.returning_origin_shield'
+    };
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    vi.spyOn(Math, 'random').mockReturnValue(0.1);
+    await cultivationService.contestEncounterOffer(userId, 'offer_deferred_1');
+
+    const refreshed = await User.findOne({ userId }).lean();
+    const inventoryDefinitionIds = refreshed?.cultivation.canonical.inventory.map((item) => item.definitionId) ?? [];
+
+    expect(inventoryDefinitionIds).toContain('manual.art.returning_origin_shield');
+    expect(refreshed?.cultivation.canonical.state.knownBattleArtIds).not.toContain('art.returning_origin_shield');
+    expect(refreshed?.cultivation.canonical.state.battleLoadout.equippedBattleArtIds).not.toContain('art.returning_origin_shield');
+  });
+
   test('60 分钟专注结算后应按新修为自动推进胎息小阶', async () => {
     const userId = 602003;
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
@@ -285,13 +378,356 @@ describe('玄鉴主循环集成测试', () => {
     expect(refreshed?.cultivation.canonical.state.combatHistorySummary).toHaveLength(1);
   });
 
+  test('练气突破筑基成功后，应锁定主道统与筑基根基且保留原修为造诣', async () => {
+    const userId = 602016;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'zhuji-lock-in' });
+    const canonical = user.ensureCanonicalCultivation();
+    const attainmentBefore = 12;
+    canonical.state.realmId = 'realm.lianqi';
+    canonical.state.currentPower = 420;
+    canonical.state.mainMethodId = 'method.lianqi_mingyang_route';
+    canonical.state.mainDaoTrack = 'universal';
+    canonical.state.foundationId = 'foundation.unshaped';
+    canonical.state.cultivationAttainment = attainmentBefore;
+    canonical.breakthrough = {
+      targetRealm: 'realm.zhuji',
+      selectedBreakthroughMethodId: 'breakthrough.lianqi_to_zhuji_base',
+      requirementProgress: {},
+      hardConditionFlags: {},
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push({
+      instanceId: 'inv_lock_in_1',
+      definitionId: 'material.yellow_breakthrough_token',
+      obtainedAt: new Date('2026-04-22T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.state.inventoryItemIds = ['inv_lock_in_1'];
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(true);
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.zhuji');
+    expect(refreshed?.cultivation.canonical.state.mainDaoTrack).toBe('mingyang');
+    expect(refreshed?.cultivation.canonical.state.foundationId).toBe('foundation.zhuji_mingyang');
+    expect(refreshed?.cultivation.canonical.state.mainMethodId).toBe('method.zhuji_mingyang_script');
+    expect(refreshed?.cultivation.canonical.state.cultivationAttainment).toBe(attainmentBefore);
+  });
+
+  test('pre-zhuji 旧存档若提前写入筑基功法，应在读取时收敛到对应练气路线功法', async () => {
+    const userId = 602017;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'legacy-pre-zhuji-method' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.lianqi';
+    canonical.state.currentPower = 360;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    await cultivationService.getCultivationStatus(userId);
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.mainMethodId).toBe('method.lianqi_mingyang_route');
+  });
+
+  test('筑基突破紫府时，应按所选法门授予对应副产物并记录副作用', async () => {
+    const userId = 602018;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'zifu-process-method' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.zhuji';
+    canonical.state.currentPower = 1120;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    canonical.state.mainDaoTrack = 'mingyang';
+    canonical.state.foundationId = 'foundation.zhuji_mingyang';
+    canonical.state.cultivationAttainment = 14;
+    canonical.breakthrough = {
+      targetRealm: 'realm.zifu',
+      selectedBreakthroughMethodId: 'breakthrough.zhuji_to_zifu_mingyang_manifest',
+      requirementProgress: {},
+      hardConditionFlags: {
+        'env.mingyang_surge': true
+      },
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push({
+      instanceId: 'inv_zifu_process_1',
+      definitionId: 'material.mysterious_breakthrough_token',
+      obtainedAt: new Date('2026-04-23T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.inventory.push({
+      instanceId: 'inv_zifu_process_2',
+      definitionId: 'material.mingyang_manifest_token',
+      obtainedAt: new Date('2026-04-23T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.state.inventoryItemIds = ['inv_zifu_process_1', 'inv_zifu_process_2'];
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('明阳化神秘法');
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.zifu');
+    expect(refreshed?.cultivation.canonical.state.knownDivinePowerIds).toContain('power.invoking_heaven_gate');
+    expect(refreshed?.cultivation.canonical.state.combatFlags.zifu_mingyang_burn).toBe(true);
+  });
+
+  test('首入紫府成功后，应落库首神通并返回四关过程摘要', async () => {
+    const userId = 602022;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'zifu-first-power-summary' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.zhuji';
+    canonical.state.currentPower = 1120;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    canonical.state.mainDaoTrack = 'mingyang';
+    canonical.state.foundationId = 'foundation.zhuji_mingyang';
+    canonical.state.cultivationAttainment = 15;
+    canonical.state.knownDivinePowerIds = [];
+    canonical.breakthrough = {
+      targetRealm: 'realm.zifu',
+      selectedBreakthroughMethodId: 'breakthrough.zhuji_to_zifu_base',
+      requirementProgress: {},
+      hardConditionFlags: {},
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push({
+      instanceId: 'inv_zifu_first_power_1',
+      definitionId: 'material.mysterious_breakthrough_token',
+      obtainedAt: new Date('2026-04-23T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.state.inventoryItemIds = ['inv_zifu_first_power_1'];
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('四关');
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.zifu');
+    expect(refreshed?.cultivation.canonical.state.knownDivinePowerIds).toContain('power.invoking_heaven_gate');
+  });
+
+  test('筑基破境在幻境关失败时，应保持境界并持久化修为与道行损伤', async () => {
+    const userId = 602023;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'zifu-fail-damage-persist' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.zhuji';
+    canonical.state.currentPower = 1120;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    canonical.state.mainDaoTrack = 'mingyang';
+    canonical.state.foundationId = 'foundation.zhuji_mingyang';
+    canonical.state.cultivationAttainment = 14;
+    canonical.breakthrough = {
+      targetRealm: 'realm.zifu',
+      selectedBreakthroughMethodId: 'breakthrough.zhuji_to_zifu_base',
+      requirementProgress: {},
+      hardConditionFlags: {
+        'gate.cross_illusion.force_fail': true
+      },
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push({
+      instanceId: 'inv_zifu_fail_damage_1',
+      definitionId: 'material.mysterious_breakthrough_token',
+      obtainedAt: new Date('2026-04-23T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.state.inventoryItemIds = ['inv_zifu_fail_damage_1'];
+    const powerBefore = canonical.state.currentPower;
+    const attainmentBefore = canonical.state.cultivationAttainment;
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(false);
+    expect(result.penalty).toBeGreaterThan(0);
+    expect(result.message).toContain('止步');
+    expect(result.message).toContain('修为损失');
+    expect(result.message).toContain('道行损失');
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.zhuji');
+    expect(refreshed?.cultivation.canonical.state.currentPower).toBeLessThan(powerBefore);
+    expect(refreshed?.cultivation.canonical.state.cultivationAttainment).toBeLessThan(attainmentBefore);
+  });
+
+  test('紫府内后续神通冲关成功后，应新增目标神通并清空本次分支态', async () => {
+    const userId = 602024;
+    const cultivationService = new CultivationService();
+    const user = await User.create({ userId, username: 'zifu-second-power-branch' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.zifu';
+    canonical.state.currentPower = 1360;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    canonical.state.mainDaoTrack = 'mingyang';
+    canonical.state.foundationId = 'foundation.zhuji_mingyang';
+    canonical.state.cultivationAttainment = 18;
+    canonical.state.knownDivinePowerIds = ['power.invoking_heaven_gate'];
+    canonical.breakthrough = {
+      targetRealm: 'realm.zifu',
+      selectedBreakthroughMethodId: 'breakthrough.zifu_divine_power_base',
+      requirementProgress: {},
+      hardConditionFlags: {},
+      branchChoice: 'power.clear_heart',
+      branchProofs: { 'proof.mingyang_fate_anchor': true },
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push({
+      instanceId: 'inv_zifu_second_power_1',
+      definitionId: 'material.zifu_second_power_token',
+      obtainedAt: new Date('2026-04-23T00:00:00.000Z'),
+      sourceType: 'encounter',
+      bound: false,
+      used: false,
+      stackCount: 1,
+      instanceMeta: {}
+    });
+    canonical.state.inventoryItemIds = ['inv_zifu_second_power_1'];
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(true);
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.zifu');
+    expect(refreshed?.cultivation.canonical.state.knownDivinePowerIds).toContain('power.clear_heart');
+    expect(refreshed?.cultivation.canonical.breakthrough?.branchChoice).toBeNull();
+    expect(refreshed?.cultivation.canonical.breakthrough?.branchProofs).toEqual({});
+  });
+
+  test('紫府圆满五神通可通过正法求金突破金丹并记录路线摘要', async () => {
+    const userId = 602025;
+    const cultivationService = new CultivationService({
+      contentNameResolver: {
+        resolve: (id: string) => {
+          const names: Record<string, string> = {
+            'goldNature.direct_mingyang': '测试明阳金性',
+            'jindan_path.direct_gold': '测试正法求金'
+          };
+          return names[id] ?? id;
+        }
+      }
+    });
+    const user = await User.create({ userId, username: 'zifu-to-jindan-direct-gold' });
+    const canonical = user.ensureCanonicalCultivation();
+    canonical.state.realmId = 'realm.zifu';
+    canonical.state.realmSubStageId = 'realmSubStage.zifu.perfect';
+    canonical.state.currentPower = 2620;
+    canonical.state.mainMethodId = 'method.zhuji_mingyang_script';
+    canonical.state.mainDaoTrack = 'mingyang';
+    canonical.state.foundationId = 'foundation.zhuji_mingyang';
+    canonical.state.cultivationAttainment = 80;
+    canonical.state.knownDivinePowerIds = [
+      'power.invoking_heaven_gate',
+      'power.clear_heart',
+      'power.long_bright_steps',
+      'power.imperial_gaze_origin',
+      'power.scarlet_sundering_bolt'
+    ];
+    canonical.breakthrough = {
+      targetRealm: 'realm.jindan',
+      selectedBreakthroughMethodId: 'breakthrough.zifu_to_jindan_direct_gold',
+      requirementProgress: {},
+      hardConditionFlags: {},
+      branchChoice: null,
+      branchProofs: {},
+      stabilityScore: 0,
+      attemptHistory: []
+    };
+    canonical.inventory.push(
+      {
+        instanceId: 'inv_jindan_flow_1',
+        definitionId: 'material.jindan_gold_catalyst',
+        obtainedAt: new Date('2026-04-24T00:00:00.000Z'),
+        sourceType: 'encounter',
+        bound: false,
+        used: false,
+        stackCount: 1,
+        instanceMeta: {}
+      },
+      {
+        instanceId: 'inv_jindan_flow_2',
+        definitionId: 'material.same_origin_treasure',
+        obtainedAt: new Date('2026-04-24T00:00:00.000Z'),
+        sourceType: 'encounter',
+        bound: false,
+        used: false,
+        stackCount: 1,
+        instanceMeta: {}
+      }
+    );
+    canonical.state.inventoryItemIds = ['inv_jindan_flow_1', 'inv_jindan_flow_2'];
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    const result = await cultivationService.attemptBreakthrough(userId);
+    expect(result.success).toBe(true);
+    expect(result.newRealm).toBe('金丹');
+    expect(result.message).toContain('副产物：测试明阳金性');
+    expect(result.message).toContain('余波：测试正法求金');
+    expect(result.message).not.toContain('goldNature.direct_mingyang');
+    expect(result.message).not.toContain('jindan_path.direct_gold');
+
+    const refreshed = await User.findOne({ userId }).lean();
+    expect(refreshed?.cultivation.canonical.state.realmId).toBe('realm.jindan');
+    expect(refreshed?.cultivation.canonical.state.combatFlags['jindan_path.direct_gold']).toBe(true);
+    expect(refreshed?.cultivation.canonical.state.combatFlags.goldNatureTag).toBe('goldNature.direct_mingyang');
+    expect(refreshed?.cultivation.canonical.state.inventoryItemIds).toEqual([]);
+  });
+
   test('90 分钟有效专注会恢复一档旧伤并只结算剩余修为', async () => {
     const userId = 602020;
     vi.spyOn(Math, 'random').mockReturnValue(0.8);
 
     const user = await User.create({ userId, username: 'injury-recovery-focus' });
     const canonical = user.ensureCanonicalCultivation();
-    canonical.state.injuryState = { level: 'medium', modifiers: ['combat_loss'] };
+    canonical.state.injuryState = { level: 'medium', points: 2, modifiers: ['combat_loss'] };
     user.replaceCanonicalCultivation(canonical);
     user.syncLegacyCultivationShell();
     await user.save();
@@ -306,11 +742,12 @@ describe('玄鉴主循环集成测试', () => {
     expect(completed.cultivationReward?.injuryRecovery).toEqual({
       applied: true,
       previousLevel: 'medium',
-      nextLevel: 'light',
-      summary: '🩹 伤势恢复：中伤 -> 轻伤'
+      nextLevel: 'none',
+      summary: '🩹 伤势恢复：中伤 -> 无伤'
     });
     expect(refreshed?.cultivation.canonical.state.currentPower).toBe(1);
-    expect(refreshed?.cultivation.canonical.state.injuryState.level).toBe('light');
+    expect(refreshed?.cultivation.canonical.state.injuryState.level).toBe('none');
+    expect(refreshed?.cultivation.canonical.state.injuryState.points).toBe(0);
   });
 
   test('短专注不会恢复旧伤', async () => {
@@ -319,7 +756,7 @@ describe('玄鉴主循环集成测试', () => {
 
     const user = await User.create({ userId, username: 'short-no-heal' });
     const canonical = user.ensureCanonicalCultivation();
-    canonical.state.injuryState = { level: 'light', modifiers: ['combat_loss'] };
+    canonical.state.injuryState = { level: 'light', points: 1, modifiers: ['combat_loss'] };
     user.replaceCanonicalCultivation(canonical);
     user.syncLegacyCultivationShell();
     await user.save();
@@ -332,5 +769,6 @@ describe('玄鉴主循环集成测试', () => {
     expect(completed.cultivationReward?.spiritualPower).toBe(0);
     expect(completed.cultivationReward?.injuryRecovery).toBeNull();
     expect(refreshed?.cultivation.canonical.state.injuryState.level).toBe('light');
+    expect(refreshed?.cultivation.canonical.state.injuryState.points).toBe(1);
   });
 });

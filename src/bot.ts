@@ -6,10 +6,16 @@ import QueueService from './services/QueueService.js';
 import CultivationService from './services/CultivationService.js';
 import CTDPService from './services/CTDPService.js';
 import logger from './utils/logger.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from './types/taskDefaults.js';
 import { BOT_COMMANDS, CALLBACK_PREFIXES } from './utils/constants.js';
 import CultivationCommandHandlers from './handlers/cultivationCommands.js';
 import CoreCommandHandlers from './handlers/coreCommands.js';
 import TaskCommandHandlers from './handlers/taskCommands.js';
+import type { ContentNameResolverDependency } from './services/CultivationService.js';
+
+interface SelfControlBotDependencies {
+  contentNameResolver?: ContentNameResolverDependency;
+}
 
 class SelfControlBot {
   private static readonly UPDATE_DEDUP_TTL_SECONDS = 60 * 60;
@@ -38,11 +44,13 @@ class SelfControlBot {
 
   isRunning: boolean;
 
-  constructor() {
+  constructor(dependencies: SelfControlBotDependencies = {}) {
     this.config = new BotConfig();
     this.bot = null;
     this.queueService = new QueueService();
-    this.cultivationService = new CultivationService();
+    this.cultivationService = new CultivationService({
+      contentNameResolver: dependencies.contentNameResolver
+    });
     this.taskService = new TaskService(this.queueService, this.cultivationService);
     this.ctdpService = new CTDPService(this.taskService, this.queueService);
     this.cultivationHandlers = null;
@@ -98,12 +106,13 @@ class SelfControlBot {
     this.taskHandlers = new TaskCommandHandlers({
       bot,
       taskService: this.taskService,
+      cultivationService: this.cultivationService,
       queueService: this.queueService,
       ctdpService: this.ctdpService,
       onError: this.sendErrorMessage.bind(this)
     });
 
-    this.cultivationHandlers = new CultivationCommandHandlers(bot);
+    this.cultivationHandlers = new CultivationCommandHandlers(bot, this.cultivationService);
   }
 
   async start(): Promise<this> {
@@ -240,6 +249,17 @@ class SelfControlBot {
 
     const cultivationCommands = [
       'realm',
+      'loadout',
+      'equip_art',
+      'equip_support',
+      'equip_power',
+      'dev_combat_detail',
+      'dev_set_injury',
+      'dev_grant_art',
+      'dev_grant_power',
+      'dev_encounter_set',
+      'dev_encounter_status',
+      'dev_encounter_clear',
       'divination',
       'divination_history',
       'divination_chart',
@@ -359,6 +379,10 @@ class SelfControlBot {
         await this.getTaskHandlers().handleCompleteTaskCallback(userId, data);
       } else if (data.startsWith(CALLBACK_PREFIXES.FAIL_TASK)) {
         await this.getTaskHandlers().handleFailTaskCallback(userId, data);
+      } else if (data.startsWith(CALLBACK_PREFIXES.ENCOUNTER_ABANDON)) {
+        await this.getTaskHandlers().handleAbandonEncounterCallback(userId, data);
+      } else if (data.startsWith(CALLBACK_PREFIXES.ENCOUNTER_CONTEST)) {
+        await this.getTaskHandlers().handleContestEncounterCallback(userId, data);
       } else if (data.startsWith(CALLBACK_PREFIXES.START_RESERVED)) {
         await this.getTaskHandlers().handleStartReservedCallback(userId, data);
       } else if (data.startsWith(CALLBACK_PREFIXES.CANCEL_RESERVATION)) {
@@ -533,10 +557,10 @@ class SelfControlBot {
         break;
       default:
         if (data.startsWith('create_task:')) {
-          const [, description = '', duration = '25'] = data.split(':');
+          const [, description = '', duration = String(DEFAULT_TASK_DURATION_MINUTES)] = data.split(':');
           await this.getTaskHandlers().handleTaskCommand(userId, `${description} ${duration}`.trim());
         } else if (data.startsWith('reserve_task:')) {
-          const [, description = '', duration = '25'] = data.split(':');
+          const [, description = '', duration = String(DEFAULT_TASK_DURATION_MINUTES)] = data.split(':');
           await this.getTaskHandlers().handleReserveCommand(userId, `${description} ${duration}`.trim());
         } else {
           await this.getBot().sendMessage(userId, '未知操作，请重试。');

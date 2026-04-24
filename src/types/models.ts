@@ -25,12 +25,33 @@ export interface IUserPreferences {
   weeklyReport: boolean;
 }
 
+export interface IUserCultivationCanonical {
+  schemaVersion: 1;
+  state: import('./cultivationCanonical.js').PlayerCultivationState;
+  breakthrough: {
+    targetRealm: import('./cultivationCanonical.js').RealmId;
+    selectedBreakthroughMethodId: string | null;
+    requirementProgress: Record<string, number>;
+    hardConditionFlags: Record<string, boolean>;
+    branchChoice?: string | null;
+    branchProofs?: Record<string, boolean>;
+    stabilityScore: number;
+    attemptHistory: Array<{
+      attemptedAt: Date;
+      success: boolean;
+      consumedDefinitionIds: string[];
+    }>;
+  } | null;
+  inventory: import('./cultivationCanonical.js').InventoryInstance[];
+}
+
 export interface IUserCultivation {
   spiritualPower: number;
   realm: string;
   realmId: number;
   realmStage: string;
   immortalStones: number;
+  canonical?: IUserCultivationCanonical;
   ascensions: number;
   immortalMarks: number;
   lastAscensionAt?: Date;
@@ -94,6 +115,14 @@ export interface IUserMethods {
   recordDivination(result: number): UserDocument;
   ascend(): UserDocument;
   addAchievement(achievementName: string): UserDocument;
+  ensureCanonicalCultivation(): IUserCultivationCanonical;
+  replaceCanonicalCultivation(canonical: IUserCultivationCanonical): IUserCultivationCanonical;
+  syncLegacyCultivationShell(): UserDocument;
+  grantInventoryDefinition(
+    definitionId: string,
+    sourceType: 'focus' | 'encounter' | 'migration' | 'admin'
+  ): UserDocument;
+  consumeInventoryDefinition(definitionId: string, count: number): boolean;
 }
 
 export type UserDocument = HydratedDocument<IUser, IUserMethods>;

@@ -11,7 +11,7 @@ import type {
   BaguaDivination,
   FortuneEvent
 } from './cultivation.js';
-import type { CombatResolution } from './cultivationCombat.js';
+import type { CombatResolution, EncounterOfferSummary } from './cultivationCombat.js';
 import type { DivinationBuff, PlayerCultivationState, RealmId } from './cultivationCanonical.js';
 
 export interface ProgressReminderData {
@@ -87,12 +87,13 @@ export interface CombatEncounterSummary {
 }
 
 export interface CultivationEncounterResult {
-  type: 'none' | 'stones' | 'item' | 'combat';
+  type: 'none' | 'stones' | 'item' | 'combat' | 'offer';
   message: string | null;
   spiritStoneDelta: number;
   obtainedDefinitionIds: string[];
   combatEncounterId?: string;
   combatSummary?: CombatEncounterSummary;
+  offerSummary?: EncounterOfferSummary;
 }
 
 export interface InjuryRecoverySummary {

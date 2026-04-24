@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
   UNIVERSAL_DAO_TRACK,
+  getBreakthroughMethodById,
+  getDivinePowerBreakthroughRequirement,
+  getFoundationById,
   findCanonicalRealmById,
   findMainMethodById,
   formatCanonicalRealmDisplay,
@@ -62,10 +65,60 @@ describe('xuanjian canonical config', () => {
   });
 
   test('exposes seeded lineage methods and display names', () => {
+    expect(getMainMethodById('method.lianqi_mingyang_route').lineageTag).toBe('mingyang');
+    expect(getMainMethodById('method.lianqi_mingyang_route').zhujiOutcome).toEqual({
+      foundationId: 'foundation.zhuji_mingyang',
+      mainDaoTrack: 'mingyang',
+      continuationMethodId: 'method.zhuji_mingyang_script',
+      grade: 5
+    });
     expect(getMainMethodById('method.zhuji_mingyang_script').lineageTag).toBe('mingyang');
     expect(getMainMethodById('method.zhuji_duijin_script').lineageTag).toBe('duijin');
     expect(getMainDaoTrackDisplayName('universal')).toBe('通用');
     expect(getMainDaoTrackDisplayName('lihuo')).toBe('离火');
+  });
+
+  test('exposes breakthrough methods as process-only transition definitions', () => {
+    expect(getBreakthroughMethodById('breakthrough.lianqi_to_zhuji_base')).toMatchObject({
+      applicableTransition: 'lianqi_to_zhuji',
+      successRateBonus: 0,
+      requiredItems: []
+    });
+    expect(getBreakthroughMethodById('breakthrough.zhuji_to_zifu_base')).toMatchObject({
+      applicableTransition: 'zhuji_to_zifu',
+      bonusOutcomeIds: ['power.zifu_first_light']
+    });
+    expect(getBreakthroughMethodById('breakthrough.zhuji_to_zifu_mingyang_manifest')).toMatchObject({
+      applicableTransition: 'zhuji_to_zifu',
+      requiredEnvironment: ['env.mingyang_surge'],
+      sideEffects: ['zifu_mingyang_burn'],
+      bonusOutcomeIds: ['power.invoking_heaven_gate'],
+      compatibility: {
+        requiresFoundation: true,
+        allowedLineages: ['mingyang'],
+        minMethodGrade: 5
+      }
+    });
+    expect(getBreakthroughMethodById('breakthrough.zifu_divine_power_base')?.applicableTransition).toBe('zifu_divine_power');
+    expect(getBreakthroughMethodById('breakthrough.missing')).toBeNull();
+  });
+
+  test('exposes foundation and zifu divine-power requirement helpers', () => {
+    expect(getFoundationById('foundation.zhuji_mingyang')).toMatchObject({
+      id: 'foundation.zhuji_mingyang',
+      firstDivinePowerId: 'power.invoking_heaven_gate'
+    });
+    expect(getFoundationById('foundation.zhuji_lihuo')).toMatchObject({
+      id: 'foundation.zhuji_lihuo',
+      firstDivinePowerId: 'power.great_departure_book'
+    });
+    expect(getDivinePowerBreakthroughRequirement(2)).toEqual({
+      id: 'breakthrough.zifu_power_2_base',
+      targetPowerOrdinal: 2,
+      requiredPower: 1360,
+      requiredAttainment: 18,
+      requiredItems: [{ definitionId: 'material.zifu_second_power_token', count: 1 }]
+    });
   });
 
   test('provides canonical lookup helpers and stage formatting', () => {

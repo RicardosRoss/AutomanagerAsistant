@@ -1,4 +1,5 @@
 import mongoose, { Schema, type CallbackWithoutResultAndOptionalError } from 'mongoose';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 import type {
   DailyStatsDocument,
   IDailyStats,
@@ -85,7 +86,9 @@ dailyStatsSchema.virtual('efficiencyScore').get(function getEfficiencyScore(this
 
   const completionRate = this.stats.tasksCompleted / this.stats.tasksStarted;
   const averageRate =
-    this.stats.averageTaskDuration > 0 ? Math.min(this.stats.averageTaskDuration / 25, 2) : 1;
+    this.stats.averageTaskDuration > 0
+      ? Math.min(this.stats.averageTaskDuration / DEFAULT_TASK_DURATION_MINUTES, 2)
+      : 1;
 
   return Math.round(completionRate * averageRate * 100);
 });

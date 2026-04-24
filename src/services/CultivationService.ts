@@ -9,6 +9,8 @@ import {
 import {
   getBattleArtRegistryEntry,
   getBattleSlotLimits,
+  getBreakthroughMethodById,
+  getDefaultBreakthroughMethodId,
   getDivinePowerRegistryEntry,
   formatCanonicalRealmDisplay,
   formatCanonicalStage,
@@ -17,20 +19,26 @@ import {
   getUnlockedRuntimeReadyDivinePowers,
   getCanonicalRealmByPower,
   getMainMethodById,
+  normalizeMainMethodIdForRealm,
   projectCombatLoadout,
   getRealmById,
   resolveRealmSubStageId
 } from '../config/xuanjianCanonical.js';
+import { getEncounterLootByDefinitionId } from '../config/xuanjianCombat.js';
 import { evaluateBreakthroughReadiness, resolveBreakthroughAttempt } from './BreakthroughEngine.js';
 import CombatService from './CombatService.js';
+import ContentNameResolver from './ContentNameResolver.js';
 import { getDivinationBuff, resolveFocusReward } from './CultivationRewardEngine.js';
-import { resolveInjuryRecovery } from './InjuryRecoveryEngine.js';
+import { resolveCombatInjury, resolveInjuryRecovery } from './InjuryRecoveryEngine.js';
 import type { FortuneEvent } from '../types/cultivation.js';
-import type { DevEncounterScript, DevEncounterType } from '../types/cultivationCanonical.js';
-import type { IUserCultivationCanonical } from '../types/models.js';
+import type { BreakthroughAttemptKind, DevEncounterScript, DevEncounterType } from '../types/cultivationCanonical.js';
+import type { PendingEncounterOfferState } from '../types/cultivationCombat.js';
+import { getInjuryPointsForLevel, normalizeInjuryState } from '../types/cultivationCombat.js';
+import type { IUserCultivationCanonical, UserDocument } from '../types/models.js';
 import type {
   AscensionResult,
   BreakthroughResult,
+  CultivationEncounterResult,
   CultivationReward,
   CultivationStatusResult,
   DivinationCastResult,
@@ -54,8 +62,22 @@ interface CombatLoadoutStatusResult {
   availableDivinePowers: Array<{ id: string; name: string; category: string; equipped: boolean }>;
 }
 
+export interface ContentNameResolverDependency {
+  resolve(id: string): string;
+}
+
+export interface CultivationServiceDependencies {
+  contentNameResolver?: ContentNameResolverDependency;
+}
+
 class CultivationService {
   combatService = new CombatService();
+
+  private readonly contentNameResolver: ContentNameResolverDependency;
+
+  constructor(dependencies: CultivationServiceDependencies = {}) {
+    this.contentNameResolver = dependencies.contentNameResolver ?? new ContentNameResolver();
+  }
 
   private isDevEncounterEnabled() {
     return (process.env.NODE_ENV ?? 'development') !== 'production';
@@ -98,6 +120,116 @@ class CultivationService {
     return canonical.state.combatFlags.devCombatDetailEnabled === true;
   }
 
+  private getPendingEncounterOfferFromCanonical(
+    canonical: IUserCultivationCanonical
+  ): PendingEncounterOfferState | null {
+    const rawOffer = canonical.state.combatFlags.pendingEncounterOffer;
+    if (!rawOffer || typeof rawOffer !== 'object') {
+      return null;
+    }
+
+    const offer = rawOffer as Partial<PendingEncounterOfferState>;
+    if (
+      typeof offer.offerId !== 'string'
+      || typeof offer.lootDefinitionId !== 'string'
+      || typeof offer.lootDisplayName !== 'string'
+      || !offer.createdAt
+    ) {
+      return null;
+    }
+
+    return {
+      ...offer,
+      createdAt: new Date(offer.createdAt)
+    } as PendingEncounterOfferState;
+  }
+
+  private setPendingEncounterOfferValue(
+    canonical: IUserCultivationCanonical,
+    offer: PendingEncounterOfferState | null
+  ) {
+    if (offer) {
+      canonical.state.combatFlags.pendingEncounterOffer = offer;
+      return;
+    }
+
+    delete canonical.state.combatFlags.pendingEncounterOffer;
+  }
+
+  private applyCombatResolution(input: {
+    canonical: IUserCultivationCanonical;
+    combat: ReturnType<CombatService['resolveEncounterCombat']>;
+    message: string | null;
+    offerSummary?: PendingEncounterOfferState;
+  }): {
+    encounter: CultivationEncounterResult;
+    combatAttainmentDelta: number;
+  } {
+    const devCombatDetailEnabled = this.getDevCombatDetailEnabled(input.canonical);
+    const combatAttainmentDelta = input.combat.patch.cultivationAttainmentDelta;
+
+    input.canonical.state.cultivationAttainment += combatAttainmentDelta;
+    const combatInjury = resolveCombatInjury({
+      currentInjuryLevel: input.canonical.state.injuryState.level,
+      currentInjuryPoints: input.canonical.state.injuryState.points,
+      incomingInjuryLevel: input.combat.patch.injuryLevel,
+      currentPower: input.canonical.state.currentPower,
+      realmMinPower: getRealmById(input.canonical.state.realmId).minPower
+    });
+    input.canonical.state.currentPower = combatInjury.nextCurrentPower;
+    input.canonical.state.injuryState = {
+      level: combatInjury.nextInjuryLevel,
+      points: combatInjury.nextInjuryPoints,
+      modifiers: combatInjury.nextInjuryPoints === 0
+        ? []
+        : (combatInjury.incomingInjuryPoints > 0 ? ['combat_loss'] : input.canonical.state.injuryState.modifiers)
+    };
+    input.canonical.state.realmId = getCanonicalRealmByPower(input.canonical.state.currentPower).id;
+    this.syncRealmSubStage(input.canonical);
+    input.canonical.state.cooldowns = {
+      ...input.canonical.state.cooldowns,
+      ...input.combat.patch.cooldownPatch
+    };
+    input.canonical.state.combatHistorySummary = [
+      ...input.canonical.state.combatHistorySummary.slice(-4),
+      {
+        encounterId: input.combat.resolution.encounterId,
+        result: input.combat.resolution.outcome,
+        happenedAt: new Date(),
+        summary: input.combat.resolution.summary,
+        enemyName: input.combat.resolution.enemyName
+      }
+    ];
+
+    return {
+      combatAttainmentDelta,
+      encounter: {
+        type: 'combat',
+        message: input.message,
+        spiritStoneDelta: input.combat.patch.spiritStoneDelta,
+        obtainedDefinitionIds: input.combat.patch.obtainedDefinitionIds,
+        offerSummary: input.offerSummary,
+        combatSummary: {
+          encounterId: input.combat.resolution.encounterId,
+          enemyName: input.combat.resolution.enemyName,
+          result: input.combat.resolution.outcome,
+          summary: input.combat.resolution.summary,
+          injuryLevel: input.canonical.state.injuryState.level,
+          rounds: devCombatDetailEnabled ? input.combat.resolution.rounds : undefined
+        }
+      }
+    };
+  }
+
+  private grantEncounterOfferLoot(
+    user: UserDocument,
+    offer: PendingEncounterOfferState
+  ) {
+    for (const definitionId of offer.obtainedDefinitionIdsOnWin) {
+      user.grantInventoryDefinition(definitionId, 'encounter');
+    }
+  }
+
   private setDevCombatDetailEnabledValue(canonical: IUserCultivationCanonical, enabled: boolean) {
     if (enabled) {
       canonical.state.combatFlags.devCombatDetailEnabled = true;
@@ -107,8 +239,42 @@ class CultivationService {
     delete canonical.state.combatFlags.devCombatDetailEnabled;
   }
 
+  private resolveBreakthroughAttemptKind(canonical: IUserCultivationCanonical): BreakthroughAttemptKind | undefined {
+    if (canonical.state.realmId === 'realm.zhuji') {
+      return 'realm_zhuji_to_zifu';
+    }
+
+    if (canonical.state.realmId !== 'realm.zifu') {
+      return undefined;
+    }
+
+    const selectedMethodId = canonical.breakthrough?.selectedBreakthroughMethodId ?? null;
+    const selectedMethod = selectedMethodId ? getBreakthroughMethodById(selectedMethodId) : null;
+    if (
+      canonical.breakthrough?.targetRealm === 'realm.jindan'
+      || selectedMethod?.applicableTransition === 'zifu_to_jindan'
+      || (
+        canonical.state.realmSubStageId === 'realmSubStage.zifu.perfect'
+        && canonical.state.knownDivinePowerIds.length >= 5
+      )
+    ) {
+      return 'realm_zifu_to_jindan';
+    }
+
+    return 'zifu_divine_power';
+  }
+
   private normalizePhaseAState(canonical: IUserCultivationCanonical): boolean {
     let changed = false;
+
+    const normalizedMainMethodId = normalizeMainMethodIdForRealm(
+      canonical.state.mainMethodId,
+      canonical.state.realmId
+    );
+    if (canonical.state.mainMethodId !== normalizedMainMethodId) {
+      canonical.state.mainMethodId = normalizedMainMethodId;
+      changed = true;
+    }
 
     if (!canonical.state.realmSubStageId) {
       canonical.state.realmSubStageId = 'realmSubStage.taixi.xuanjing';
@@ -145,12 +311,43 @@ class CultivationService {
       changed = true;
     }
 
-    if (!canonical.state.injuryState) {
-      canonical.state.injuryState = {
-        level: 'none',
-        modifiers: []
-      };
+    const defaultBreakthroughMethodId = getDefaultBreakthroughMethodId(canonical.state.realmId);
+    if (canonical.breakthrough && !canonical.breakthrough.selectedBreakthroughMethodId && defaultBreakthroughMethodId) {
+      canonical.breakthrough.selectedBreakthroughMethodId = defaultBreakthroughMethodId;
       changed = true;
+    }
+    if (canonical.breakthrough) {
+      if (!Object.prototype.hasOwnProperty.call(canonical.breakthrough, 'branchChoice')) {
+        canonical.breakthrough.branchChoice = null;
+        changed = true;
+      }
+      if (
+        !Object.prototype.hasOwnProperty.call(canonical.breakthrough, 'branchProofs')
+        || !canonical.breakthrough.branchProofs
+        || Array.isArray(canonical.breakthrough.branchProofs)
+      ) {
+        canonical.breakthrough.branchProofs = {};
+        changed = true;
+      }
+    }
+
+    if (!canonical.state.injuryState) {
+      canonical.state.injuryState = normalizeInjuryState({
+        level: 'none',
+        points: 0,
+        modifiers: []
+      });
+      changed = true;
+    } else {
+      const normalizedInjuryState = normalizeInjuryState(canonical.state.injuryState);
+      if (
+        canonical.state.injuryState.level !== normalizedInjuryState.level
+        || canonical.state.injuryState.points !== normalizedInjuryState.points
+        || canonical.state.injuryState.modifiers.length !== normalizedInjuryState.modifiers.length
+      ) {
+        canonical.state.injuryState = normalizedInjuryState;
+        changed = true;
+      }
     }
 
     return changed;
@@ -368,10 +565,19 @@ class CultivationService {
       const mainMethod = getMainMethodById(canonical.state.mainMethodId);
       const readiness = evaluateBreakthroughReadiness({
         currentRealmId: canonical.state.realmId,
+        realmSubStageId: canonical.state.realmSubStageId,
         currentPower: canonical.state.currentPower,
         cultivationAttainment: canonical.state.cultivationAttainment,
         mainMethodId: canonical.state.mainMethodId,
-        inventory: canonical.inventory
+        mainDaoTrack: canonical.state.mainDaoTrack,
+        foundationId: canonical.state.foundationId,
+        selectedBreakthroughMethodId: canonical.breakthrough?.selectedBreakthroughMethodId ?? null,
+        inventory: canonical.inventory,
+        knownDivinePowerIds: canonical.state.knownDivinePowerIds,
+        hardConditionFlags: canonical.breakthrough?.hardConditionFlags ?? {},
+        attemptKind: this.resolveBreakthroughAttemptKind(canonical),
+        branchChoice: canonical.breakthrough?.branchChoice ?? null,
+        branchProofs: canonical.breakthrough?.branchProofs ?? {}
       });
       const realmSpan = display.realm.maxPower - display.realm.minPower;
       const progress = realmSpan <= 0
@@ -425,8 +631,8 @@ class CultivationService {
       throw new Error('该命令仅在开发环境可用');
     }
 
-    if (!['none', 'stones', 'item', 'combat'].includes(type)) {
-      throw new Error('奇遇类别必须是 none / stones / item / combat');
+    if (!['none', 'stones', 'item', 'combat', 'offer'].includes(type)) {
+      throw new Error('奇遇类别必须是 none / stones / item / combat / offer');
     }
 
     if (!Number.isInteger(count) || count < 1 || count > 20) {
@@ -521,6 +727,104 @@ class CultivationService {
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
     return this.getDevCombatDetailEnabled(canonical);
+  }
+
+  async abandonEncounterOffer(userId: number, offerId: string): Promise<PendingEncounterOfferState> {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      throw new Error('用户不存在');
+    }
+
+    const canonical = user.ensureCanonicalCultivation();
+    this.normalizePhaseAState(canonical);
+    const offer = this.getPendingEncounterOfferFromCanonical(canonical);
+    if (!offer || offer.offerId !== offerId) {
+      throw new Error('该守宝奇遇已失效');
+    }
+
+    this.setPendingEncounterOfferValue(canonical, null);
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    return offer;
+  }
+
+  async contestEncounterOffer(userId: number, offerId: string): Promise<CultivationEncounterResult> {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      throw new Error('用户不存在');
+    }
+
+    const canonical = user.ensureCanonicalCultivation();
+    this.normalizePhaseAState(canonical);
+    this.syncRealmSubStage(canonical);
+    const offer = this.getPendingEncounterOfferFromCanonical(canonical);
+    if (!offer || offer.offerId !== offerId) {
+      throw new Error('该守宝奇遇已失效');
+    }
+
+    const combat = this.combatService.resolveGeneratedEncounterCombat({
+      canonical,
+      offer,
+      seed: Math.floor(Math.random() * 1_000_000)
+    });
+    const appliedCombat = this.applyCombatResolution({
+      canonical,
+      combat,
+      message: `⚔️ 你与${combat.resolution.enemyName}争抢 ${offer.lootDisplayName}。`,
+      offerSummary: offer
+    });
+
+    this.setPendingEncounterOfferValue(canonical, null);
+    user.addImmortalStones(appliedCombat.encounter.spiritStoneDelta);
+    user.cultivation.peakSpiritualPower = Math.max(user.cultivation.peakSpiritualPower, canonical.state.currentPower);
+    user.replaceCanonicalCultivation(canonical);
+    if (combat.resolution.outcome !== 'loss') {
+      this.grantEncounterOfferLoot(user, offer);
+      appliedCombat.encounter.obtainedDefinitionIds = [...offer.obtainedDefinitionIdsOnWin];
+    }
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    return appliedCombat.encounter;
+  }
+
+  async setInjuryLevelForTesting(
+    userId: number,
+    level: 'none' | 'light' | 'medium' | 'heavy'
+  ): Promise<{ level: 'none' | 'light' | 'medium' | 'heavy' }> {
+    if (!this.isDevEncounterEnabled()) {
+      throw new Error('该命令仅在测试环境可用');
+    }
+
+    const user = await User.findOne({ userId });
+    if (!user) {
+      throw new Error('用户不存在');
+    }
+
+    const canonical = user.ensureCanonicalCultivation();
+    this.normalizePhaseAState(canonical);
+
+    if (level === 'none') {
+      canonical.state.injuryState = normalizeInjuryState({
+        level: 'none',
+        points: 0,
+        modifiers: []
+      });
+    } else {
+      canonical.state.injuryState = normalizeInjuryState({
+        level,
+        points: getInjuryPointsForLevel(level),
+        modifiers: canonical.state.injuryState?.modifiers ?? []
+      });
+    }
+
+    user.replaceCanonicalCultivation(canonical);
+    user.syncLegacyCultivationShell();
+    await user.save();
+
+    return { level: canonical.state.injuryState.level };
   }
 
   async grantBattleArtsForTesting(userId: number, ids: string[]): Promise<{
@@ -629,7 +933,8 @@ class CultivationService {
       const injuryRecovery = resolveInjuryRecovery({
         duration,
         rawPowerGain: resolution.totalPowerGain,
-        injuryLevel: canonical.state.injuryState.level
+        injuryLevel: canonical.state.injuryState.level,
+        injuryPoints: canonical.state.injuryState.points
       });
       let encounter = resolution.encounter;
       let combatAttainmentDelta = 0;
@@ -643,51 +948,34 @@ class CultivationService {
       if (injuryRecovery.applied) {
         canonical.state.injuryState = {
           level: injuryRecovery.nextInjuryLevel,
+          points: injuryRecovery.nextInjuryPoints,
           modifiers: injuryRecovery.nextInjuryLevel === 'none' ? [] : canonical.state.injuryState.modifiers
         };
       }
       this.syncRealmSubStage(canonical);
+      if (encounter.type === 'offer' && encounter.offerSummary) {
+        const loot = getEncounterLootByDefinitionId(encounter.offerSummary.lootDefinitionId);
+        this.setPendingEncounterOfferValue(canonical, {
+          ...encounter.offerSummary,
+          createdAt: new Date(),
+          grantMode: loot?.grantMode ?? 'inventory',
+          obtainedDefinitionIdsOnWin: loot ? [loot.definitionId] : [],
+          deferredContentId: loot?.contentId
+        });
+      }
       if (encounter.type === 'combat' && encounter.combatEncounterId) {
         const combat = this.combatService.resolveEncounterCombat({
           canonical,
           combatEncounterId: encounter.combatEncounterId,
           seed: Math.floor(Math.random() * 1_000_000)
         });
-        const devCombatDetailEnabled = this.getDevCombatDetailEnabled(canonical);
-
-        combatAttainmentDelta = combat.patch.cultivationAttainmentDelta;
-        canonical.state.cultivationAttainment += combatAttainmentDelta;
-        canonical.state.injuryState = {
-          level: combat.patch.injuryLevel,
-          modifiers: combat.patch.injuryLevel === 'none' ? [] : ['combat_loss']
-        };
-        canonical.state.cooldowns = {
-          ...canonical.state.cooldowns,
-          ...combat.patch.cooldownPatch
-        };
-        canonical.state.combatHistorySummary = [
-          ...canonical.state.combatHistorySummary.slice(-4),
-          {
-            encounterId: combat.resolution.encounterId,
-            result: combat.resolution.outcome,
-            happenedAt: new Date(),
-            summary: combat.resolution.summary,
-            enemyName: combat.resolution.enemyName
-          }
-        ];
-        encounter = {
-          ...encounter,
-          spiritStoneDelta: combat.patch.spiritStoneDelta,
-          obtainedDefinitionIds: combat.patch.obtainedDefinitionIds,
-          combatSummary: {
-            encounterId: combat.resolution.encounterId,
-            enemyName: combat.resolution.enemyName,
-            result: combat.resolution.outcome,
-            summary: combat.resolution.summary,
-            injuryLevel: combat.patch.injuryLevel,
-            rounds: devCombatDetailEnabled ? combat.resolution.rounds : undefined
-          }
-        };
+        const appliedCombat = this.applyCombatResolution({
+          canonical,
+          combat,
+          message: encounter.message
+        });
+        combatAttainmentDelta = appliedCombat.combatAttainmentDelta;
+        encounter = appliedCombat.encounter;
       }
       // Consume divination buff after focus encounter
       canonical.state.pendingDivinationBuff = null;
@@ -706,8 +994,8 @@ class CultivationService {
       user.cultivation.totalSpiritualPowerEarned += awardedPowerGain;
       user.cultivation.peakSpiritualPower = Math.max(user.cultivation.peakSpiritualPower, canonical.state.currentPower);
 
-      user.addImmortalStones(encounter.spiritStoneDelta);
-      for (const definitionId of encounter.obtainedDefinitionIds) {
+      user.addImmortalStones(encounter.type === 'offer' ? 0 : encounter.spiritStoneDelta);
+      for (const definitionId of encounter.type === 'offer' ? [] : encounter.obtainedDefinitionIds) {
         user.grantInventoryDefinition(definitionId, encounter.type === 'combat' ? 'encounter' : 'focus');
       }
       if (encounter.type !== 'none') {
@@ -721,10 +1009,19 @@ class CultivationService {
       const realmChanged = oldRealmId !== canonical.state.realmId;
       const readiness = evaluateBreakthroughReadiness({
         currentRealmId: canonical.state.realmId,
+        realmSubStageId: canonical.state.realmSubStageId,
         currentPower: canonical.state.currentPower,
         cultivationAttainment: canonical.state.cultivationAttainment,
         mainMethodId: canonical.state.mainMethodId,
-        inventory: canonical.inventory
+        mainDaoTrack: canonical.state.mainDaoTrack,
+        foundationId: canonical.state.foundationId,
+        selectedBreakthroughMethodId: canonical.breakthrough?.selectedBreakthroughMethodId ?? null,
+        inventory: canonical.inventory,
+        knownDivinePowerIds: canonical.state.knownDivinePowerIds,
+        hardConditionFlags: canonical.breakthrough?.hardConditionFlags ?? {},
+        attemptKind: this.resolveBreakthroughAttemptKind(canonical),
+        branchChoice: canonical.breakthrough?.branchChoice ?? null,
+        branchProofs: canonical.breakthrough?.branchProofs ?? {}
       });
 
       return {
@@ -863,17 +1160,73 @@ class CultivationService {
       }
       const canonical = user.ensureCanonicalCultivation();
       this.normalizePhaseAState(canonical);
+      this.syncRealmSubStage(canonical);
       const currentRealm = getRealmById(canonical.state.realmId);
+      const attemptKind = this.resolveBreakthroughAttemptKind(canonical);
+      const gateNameMap: Record<string, string> = {
+        lift_foundation: '抬升道基',
+        cross_illusion: '心魔幻境关',
+        gestate_power: '孕化神通',
+        enter_taixu: '入太虚门',
+        shape_aux_foundation: '塑辅基',
+        gestate_target_power: '孕化目标神通'
+      };
       const result = resolveBreakthroughAttempt({
         currentRealmId: canonical.state.realmId,
+        realmSubStageId: canonical.state.realmSubStageId,
         currentPower: canonical.state.currentPower,
         cultivationAttainment: canonical.state.cultivationAttainment,
         mainMethodId: canonical.state.mainMethodId,
+        mainDaoTrack: canonical.state.mainDaoTrack,
+        foundationId: canonical.state.foundationId,
+        selectedBreakthroughMethodId: canonical.breakthrough?.selectedBreakthroughMethodId ?? null,
         inventory: canonical.inventory,
-        knownDivinePowerIds: canonical.state.knownDivinePowerIds
+        knownDivinePowerIds: canonical.state.knownDivinePowerIds,
+        hardConditionFlags: canonical.breakthrough?.hardConditionFlags ?? {},
+        attemptKind,
+        branchChoice: canonical.breakthrough?.branchChoice ?? null,
+        branchProofs: canonical.breakthrough?.branchProofs ?? {}
       });
 
       if (!result.success) {
+        if (result.reason === 'attempt_failed') {
+          const failedGateId = result.failedGateId ?? result.breakthroughResolution?.failedGateId;
+          const failedGateName = failedGateId ? (gateNameMap[failedGateId] ?? failedGateId) : '未知关卡';
+          canonical.state.currentPower = Math.max(
+            currentRealm.minPower,
+            canonical.state.currentPower - result.powerLossApplied
+          );
+          canonical.state.cultivationAttainment = Math.max(
+            0,
+            canonical.state.cultivationAttainment - result.attainmentLossApplied
+          );
+          this.syncRealmSubStage(canonical);
+          canonical.inventory = result.updatedInventory;
+          canonical.state.inventoryItemIds = result.updatedInventory
+            .filter((item) => !item.used && item.stackCount > 0)
+            .map((item) => item.instanceId);
+          canonical.state.knownDivinePowerIds = result.updatedKnownDivinePowerIds;
+          user.recordBreakthrough(false);
+          user.replaceCanonicalCultivation(canonical);
+          user.syncLegacyCultivationShell();
+          await user.save();
+
+          const gateSummary = result.breakthroughResolution?.gates.length
+            ? result.breakthroughResolution.gates
+              .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
+              .join(' / ')
+            : null;
+
+          return {
+            success: false,
+            message: `⚠️ 破境失败：止步${failedGateName}\n\n💥 修为损失：-${result.powerLossApplied}\n📉 道行损失：-${result.attainmentLossApplied}${gateSummary ? `\n🧭 四关过程：${gateSummary}` : ''}`,
+            penalty: result.powerLossApplied,
+            realmDemoted: false,
+            newRealm: currentRealm.name,
+            currentPower: canonical.state.currentPower
+          };
+        }
+
         const reasonMessage = result.reason === 'max_realm'
           ? '已达当前体系最高境界，暂无更高可突破境界。'
           : result.reason === 'missing_requirement'
@@ -899,8 +1252,35 @@ class CultivationService {
         .filter((item) => !item.used && item.stackCount > 0)
         .map((item) => item.instanceId);
       canonical.state.knownDivinePowerIds = result.updatedKnownDivinePowerIds;
+      if (result.nextMainDaoTrack) {
+        canonical.state.mainDaoTrack = result.nextMainDaoTrack;
+      }
+      if (result.nextFoundationId) {
+        canonical.state.foundationId = result.nextFoundationId;
+      }
+      if (result.nextMainMethodId) {
+        canonical.state.mainMethodId = result.nextMainMethodId;
+      }
+      for (const sideEffect of result.breakthroughResolution.sideEffectsApplied) {
+        canonical.state.combatFlags[sideEffect] = true;
+      }
+      const goldNatureTag = result.breakthroughResolution.bonusOutcomeIds.find((id) => id.startsWith('goldNature.'));
+      if (goldNatureTag) {
+        canonical.state.combatFlags.goldNatureTag = goldNatureTag;
+      }
+      const appliedBreakthroughMethod = result.breakthroughResolution.methodId
+        ? getBreakthroughMethodById(result.breakthroughResolution.methodId)
+        : null;
+      if (appliedBreakthroughMethod?.jindanRoute) {
+        canonical.state.combatFlags.jindanPathType = appliedBreakthroughMethod.jindanRoute.pathType;
+      }
       if (result.resetBreakthroughState) {
-        canonical.breakthrough = result.nextBreakthroughState;
+        if (result.breakthroughResolution.attemptKind === 'zifu_divine_power' && canonical.breakthrough) {
+          canonical.breakthrough.branchChoice = null;
+          canonical.breakthrough.branchProofs = {};
+        } else {
+          canonical.breakthrough = result.nextBreakthroughState;
+        }
       }
 
       user.recordBreakthrough(true);
@@ -920,9 +1300,29 @@ class CultivationService {
       await user.save();
 
       logger.info(`渡劫成功: ${oldRealmName} → ${nextRealm.name}`, { userId });
+      const methodName = result.breakthroughResolution.methodId
+        ? (getBreakthroughMethodById(result.breakthroughResolution.methodId)?.name ?? result.breakthroughResolution.methodId)
+        : null;
+      const bonusOutcomeNames = result.breakthroughResolution.bonusOutcomeIds.map((id) => (
+        this.contentNameResolver.resolve(id)
+      ));
+      const gateSummary = result.breakthroughResolution.gates.length > 0
+        ? `🧭 四关：${result.breakthroughResolution.gates
+          .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
+          .join(' / ')}`
+        : null;
+      const sideEffectSummary = result.breakthroughResolution.sideEffectsApplied
+        .map((id) => this.contentNameResolver.resolve(id))
+        .join('、');
+      const processLines = [
+        methodName ? `🕯️ 破境法门：${methodName}` : null,
+        gateSummary,
+        bonusOutcomeNames.length > 0 ? `✨ 副产物：${bonusOutcomeNames.join('、')}` : null,
+        sideEffectSummary ? `⚠️ 余波：${sideEffectSummary}` : null
+      ].filter(Boolean);
       return {
         success: true,
-        message: `⚡⚡⚡ 天劫降临！\n\n🎊 成功突破至 ${nextRealm.name}！\n📖 称号：${nextRealm.name}修士`,
+        message: `⚡⚡⚡ 天劫降临！\n\n🎊 成功突破至 ${nextRealm.name}！\n📖 称号：${nextRealm.name}修士${processLines.length > 0 ? `\n${processLines.join('\n')}` : ''}`,
         oldRealm: oldRealmName,
         newRealm: nextRealm.name,
         newTitle: `${nextRealm.name}修士`

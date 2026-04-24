@@ -70,3 +70,10 @@ export interface RealmDisplay {
   progress: number;
   nextRealmProgress: number | null;
 }
+
+export type {
+  BaseDefinition,
+  InventoryInstance,
+  PlayerCultivationState,
+  RealmId
+} from './cultivationCanonical.js';

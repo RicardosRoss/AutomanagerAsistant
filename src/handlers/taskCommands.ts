@@ -15,13 +15,16 @@ import { formatDurationFromSeconds } from '../utils/helpers.js';
 import type QueueService from '../services/QueueService.js';
 import type TaskService from '../services/TaskService.js';
 import type CTDPService from '../services/CTDPService.js';
+import type CultivationService from '../services/CultivationService.js';
 import type { CombatActionType } from '../types/cultivationCombat.js';
+import { formatEncounterRiskTierLabel, formatGuardianStyleLabel } from '../config/xuanjianCombat.js';
 
 type ErrorReporter = (userId: number, message: string) => Promise<void>;
 
 interface TaskCommandDependencies {
   bot: TelegramBot;
   taskService: TaskService;
+  cultivationService?: CultivationService;
   queueService: QueueService;
   ctdpService?: CTDPService;
   onError: ErrorReporter;
@@ -55,15 +58,18 @@ class TaskCommandHandlers {
 
   taskService: TaskService;
 
+  cultivationService: CultivationService | null;
+
   queueService: QueueService;
 
   ctdpService: CTDPService | null;
 
   onError: ErrorReporter;
 
-  constructor({ bot, taskService, queueService, ctdpService, onError }: TaskCommandDependencies) {
+  constructor({ bot, taskService, cultivationService, queueService, ctdpService, onError }: TaskCommandDependencies) {
     this.bot = bot;
     this.taskService = taskService;
+    this.cultivationService = cultivationService ?? null;
     this.queueService = queueService;
     this.ctdpService = ctdpService ?? null;
     this.onError = onError;
@@ -228,6 +234,29 @@ class TaskCommandHandlers {
         if (reward.encounter?.message) {
           message += `\n\n${reward.encounter.message}`;
         }
+        if (reward.encounter?.offerSummary) {
+          message += `\n💎 宝物：${reward.encounter.offerSummary.lootDisplayName}`;
+          message += `\n⚠️ 风险：${formatEncounterRiskTierLabel(reward.encounter.offerSummary.riskTier)}`;
+          message += `\n🧿 守宝风格：${formatGuardianStyleLabel(reward.encounter.offerSummary.guardianStyle)}`;
+
+          await this.bot.sendMessage(userId, message, {
+            reply_markup: {
+              inline_keyboard: [[
+                {
+                  text: '🚶 离开',
+                  callback_data: `${CALLBACK_PREFIXES.ENCOUNTER_ABANDON}${reward.encounter.offerSummary.offerId}`
+                },
+                {
+                  text: '⚔️ 争抢',
+                  callback_data: `${CALLBACK_PREFIXES.ENCOUNTER_CONTEST}${reward.encounter.offerSummary.offerId}`
+                }
+              ]]
+            }
+          });
+
+          logger.logTaskAction(userId, taskId, 'completed_success_offer');
+          return;
+        }
         if (reward.encounter?.combatSummary) {
           message += `\n⚔️ 斗法结果：${formatCombatOutcomeLabel(reward.encounter.combatSummary.result)}`;
           message += `\n🐺 对手：${reward.encounter.combatSummary.enemyName}`;
@@ -258,6 +287,46 @@ class TaskCommandHandlers {
       }
 
       logger.logTaskAction(userId, taskId, 'completed_success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.onError(userId, message);
+    }
+  }
+
+  async handleAbandonEncounterCallback(userId: number, data: string): Promise<void> {
+    try {
+      if (!this.cultivationService) {
+        throw new Error('守宝奇遇服务未初始化');
+      }
+
+      const offerId = data.replace(CALLBACK_PREFIXES.ENCOUNTER_ABANDON, '');
+      const offer = await this.cultivationService.abandonEncounterOffer(userId, offerId);
+      await this.bot.sendMessage(userId, `🚶 你放弃了 ${offer.lootDisplayName}，此宝已随机缘散去。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.onError(userId, message);
+    }
+  }
+
+  async handleContestEncounterCallback(userId: number, data: string): Promise<void> {
+    try {
+      if (!this.cultivationService) {
+        throw new Error('守宝奇遇服务未初始化');
+      }
+
+      const offerId = data.replace(CALLBACK_PREFIXES.ENCOUNTER_CONTEST, '');
+      const encounter = await this.cultivationService.contestEncounterOffer(userId, offerId);
+
+      let message = `⚔️ 你决定争抢 ${encounter.offerSummary?.lootDisplayName ?? '机缘宝物'}！\n`;
+      message += `\n斗法结果：${formatCombatOutcomeLabel(encounter.combatSummary?.result ?? 'loss')}`;
+      message += `\n对手：${encounter.combatSummary?.enemyName ?? '守宝敌手'}`;
+      message += `\n战报：${encounter.combatSummary?.summary ?? '斗法落幕。'}`;
+
+      if (encounter.combatSummary?.injuryLevel && encounter.combatSummary.injuryLevel !== 'none') {
+        message += `\n伤势：${formatInjuryLevelLabel(encounter.combatSummary.injuryLevel)}`;
+      }
+
+      await this.bot.sendMessage(userId, message);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.onError(userId, message);

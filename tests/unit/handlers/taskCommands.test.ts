@@ -292,8 +292,8 @@ describe('TaskCommandHandlers', () => {
             injuryRecovery: {
               applied: true,
               previousLevel: 'medium',
-              nextLevel: 'light',
-              summary: '🩹 伤势恢复：中伤 -> 轻伤'
+              nextLevel: 'none',
+              summary: '🩹 伤势恢复：中伤 -> 无伤'
             },
             encounter: {
               type: 'none',
@@ -317,7 +317,7 @@ describe('TaskCommandHandlers', () => {
     await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-2');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
-    expect(sentMessage).toContain('🩹 伤势恢复：中伤 -> 轻伤');
+    expect(sentMessage).toContain('🩹 伤势恢复：中伤 -> 无伤');
     expect(sentMessage).not.toContain('疗伤耗去修为');
   });
 
@@ -463,5 +463,67 @@ describe('TaskCommandHandlers', () => {
     expect(sentMessage).toContain('⚡ 获得修为：0 点');
     expect(sentMessage).toContain('未达到60分钟主修为门槛');
     expect(sentMessage).toContain('未触发主修为与奇遇收益');
+  });
+
+  test('完成任务消息在守宝奇遇时应追加风险文案和离开/争抢按钮', async () => {
+    const cultivationService = {
+      abandonEncounterOffer: vi.fn(),
+      contestEncounterOffer: vi.fn()
+    };
+    const handlers = new TaskCommandHandlers({
+      bot: bot as never,
+      taskService: taskService as never,
+      cultivationService: cultivationService as never,
+      queueService: { scheduleReservation: vi.fn(), cancelReservation: vi.fn() } as never,
+      ctdpService: {
+        completeTrackedTask: vi.fn().mockResolvedValue({
+          task: { taskId: 'task-guardian', actualDuration: 60 },
+          cultivationReward: {
+            spiritualPower: 1,
+            immortalStones: 0,
+            cultivationAttainmentDelta: 1,
+            mainMethodName: '玄门吐纳法',
+            encounter: {
+              type: 'offer',
+              message: '✨ 你发现了归元盾传承玉简，却有守宝之物拦路。',
+              spiritStoneDelta: 0,
+              obtainedDefinitionIds: [],
+              offerSummary: {
+                offerId: 'offer_1',
+                lootDefinitionId: 'manual.art.returning_origin_shield',
+                lootDisplayName: '归元盾传承玉简',
+                lootTier: '玄',
+                guardianStyle: 'hybrid',
+                riskTier: 'dangerous',
+                guardianEncounterId: 'generated.encounter.guardian.hybrid.1',
+                guardianName: '镇宝异种'
+              }
+            }
+          },
+          user: {
+            stats: {
+              currentStreak: 1
+            }
+          }
+        }),
+        failTrackedTask: vi.fn()
+      } as never,
+      onError
+    });
+
+    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-guardian');
+
+    expect(bot.sendMessage).toHaveBeenCalledWith(
+      123456789,
+      expect.stringContaining('⚠️ 风险：凶险'),
+      expect.objectContaining({
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '🚶 离开', callback_data: 'encounter_abandon_offer_1' },
+            { text: '⚔️ 争抢', callback_data: 'encounter_contest_offer_1' }
+          ]]
+        }
+      })
+    );
   });
 });

@@ -1,12 +1,30 @@
 import type TelegramBot from 'node-telegram-bot-api';
 import logger from '../utils/logger.js';
 import CultivationService from '../services/CultivationService.js';
-import { formatRealmDisplay } from '../config/cultivation.js';
+import { formatInjuryLevelLabel } from '../config/xuanjianCombat.js';
+import {
+  formatCanonicalRealmDisplay,
+  getCanonicalRealmByPower,
+  getMainDaoTrackDisplayName,
+  isUniversalDaoTrack
+} from '../config/xuanjianCanonical.js';
+import type { DevEncounterType } from '../types/cultivationCanonical.js';
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    globalThis.setTimeout(resolve, ms);
-  });
+function parseCsvIds(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatNamedList(items: Array<{ name: string }>): string {
+  return items.length > 0 ? items.map((item) => item.name).join('、') : '无';
+}
+
+function formatOptionsList(items: Array<{ id: string; name: string }>): string {
+  return items.length > 0
+    ? items.map((item) => `${item.name}(${item.id})`).join('、')
+    : '无';
 }
 
 class CultivationCommandHandlers {
@@ -14,9 +32,13 @@ class CultivationCommandHandlers {
 
   cultivationService: CultivationService;
 
-  constructor(bot: TelegramBot) {
+  constructor(bot: TelegramBot, cultivationService = new CultivationService()) {
     this.bot = bot;
-    this.cultivationService = new CultivationService();
+    this.cultivationService = cultivationService;
+  }
+
+  private isDevEncounterEnabled(): boolean {
+    return (process.env.NODE_ENV ?? 'development') !== 'production';
   }
 
   registerCommands(): void {
@@ -35,6 +57,18 @@ class CultivationCommandHandlers {
     this.bot.onText(/\/breakthrough/, (msg) => {
       void this.handleBreakthroughCommand(msg);
     });
+    this.bot.onText(/\/loadout/, (msg) => {
+      void this.handleLoadoutCommand(msg);
+    });
+    this.bot.onText(/\/equip_art(?:\s+(.+))?/, (msg, match) => {
+      void this.handleEquipArtCommand(msg, match);
+    });
+    this.bot.onText(/\/equip_support(?:\s+(.+))?/, (msg, match) => {
+      void this.handleEquipSupportCommand(msg, match);
+    });
+    this.bot.onText(/\/equip_power(?:\s+(.+))?/, (msg, match) => {
+      void this.handleEquipPowerCommand(msg, match);
+    });
     this.bot.onText(/\/ascension/, (msg) => {
       void this.handleAscensionCommand(msg);
     });
@@ -51,7 +85,261 @@ class CultivationCommandHandlers {
       void this.handleStonesCommand(msg);
     });
 
+    if (this.isDevEncounterEnabled()) {
+      this.bot.onText(/\/dev_combat_detail(?:\s+(on|off|status))?/, (msg, match) => {
+        void this.handleDevCombatDetailCommand(msg, match);
+      });
+      this.bot.onText(/\/dev_set_injury(?:\s+(none|light|medium|heavy))?/, (msg, match) => {
+        void this.handleDevSetInjuryCommand(msg, match);
+      });
+      this.bot.onText(/\/dev_grant_art(?:\s+(.+))?/, (msg, match) => {
+        void this.handleDevGrantArtCommand(msg, match);
+      });
+      this.bot.onText(/\/dev_grant_power(?:\s+(.+))?/, (msg, match) => {
+        void this.handleDevGrantPowerCommand(msg, match);
+      });
+      this.bot.onText(/\/dev_encounter_set(?:\s+(\w+)\s+(\d+))?/, (msg, match) => {
+        void this.handleDevEncounterSetCommand(msg, match);
+      });
+      this.bot.onText(/\/dev_encounter_status/, (msg) => {
+        void this.handleDevEncounterStatusCommand(msg);
+      });
+      this.bot.onText(/\/dev_encounter_clear/, (msg) => {
+        void this.handleDevEncounterClearCommand(msg);
+      });
+    }
+
     logger.info('修仙系统命令已注册');
+  }
+
+  async handleDevEncounterSetCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在开发环境可用');
+      return;
+    }
+
+    const type = match?.[1] as DevEncounterType | undefined;
+    const count = Number.parseInt(match?.[2] ?? '', 10);
+
+    if (!type || Number.isNaN(count)) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/dev_encounter_set <none|stones|item|combat|offer> <count>');
+      return;
+    }
+
+    try {
+      const script = await this.cultivationService.setDevEncounterScript(userId, type, count);
+      let message = '🧪 开发奇遇脚本已设置\n\n';
+      message += `类别：${script.type}\n`;
+      message += `次数：${script.remainingUses} 次\n\n`;
+      message += `接下来 ${script.remainingUses} 次专注奇遇将固定进入 ${script.type} 类别随机结果。`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevCombatDetailCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在测试环境可用');
+      return;
+    }
+
+    const action = match?.[1] ?? 'status';
+
+    try {
+      if (action === 'status') {
+        const enabled = await this.cultivationService.getDevCombatDetailStatus(userId);
+        await this.bot.sendMessage(chatId, `🧪 详细战报状态：${enabled ? 'on' : 'off'}`);
+        return;
+      }
+
+      if (action !== 'on' && action !== 'off') {
+        await this.bot.sendMessage(chatId, '❌ 用法：/dev_combat_detail <on|off|status>');
+        return;
+      }
+
+      const enabled = await this.cultivationService.setDevCombatDetailEnabled(userId, action === 'on');
+      await this.bot.sendMessage(chatId, `🧪 详细战报已${enabled ? '开启' : '关闭'}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevSetInjuryCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在测试环境可用');
+      return;
+    }
+
+    const level = match?.[1];
+    if (!level || !['none', 'light', 'medium', 'heavy'].includes(level)) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/dev_set_injury <none|light|medium|heavy>');
+      return;
+    }
+
+    try {
+      const result = await this.cultivationService.setInjuryLevelForTesting(
+        userId,
+        level as 'none' | 'light' | 'medium' | 'heavy'
+      );
+      await this.bot.sendMessage(chatId, `🧪 当前伤势已设为：${formatInjuryLevelLabel(result.level)}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevGrantArtCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在测试环境可用');
+      return;
+    }
+
+    const ids = parseCsvIds(match?.[1]);
+    if (ids.length === 0) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/dev_grant_art <id[,id...]> ');
+      return;
+    }
+
+    try {
+      const result = await this.cultivationService.grantBattleArtsForTesting(userId, ids);
+      let message = '🧪 开发法门授予成功\n\n';
+      message += `新增法门：${result.grantedNames.join('、')}\n`;
+      message += `数量：${result.grantedIds.length}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevEncounterStatusCommand(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在开发环境可用');
+      return;
+    }
+
+    try {
+      const script = await this.cultivationService.getDevEncounterScript(userId);
+      if (!script) {
+        await this.bot.sendMessage(chatId, '🧪 当前未设置开发奇遇脚本');
+        return;
+      }
+
+      let message = '🧪 当前开发奇遇脚本\n\n';
+      message += `类别：${script.type}\n`;
+      message += `剩余次数：${script.remainingUses}\n`;
+      message += `更新时间：${script.updatedAt.toISOString()}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevGrantPowerCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在测试环境可用');
+      return;
+    }
+
+    const ids = parseCsvIds(match?.[1]);
+    if (ids.length === 0) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/dev_grant_power <id[,id...]> ');
+      return;
+    }
+
+    try {
+      const result = await this.cultivationService.grantDivinePowersForTesting(userId, ids);
+      let message = '🧪 开发神通授予成功\n\n';
+      message += `新增神通：${result.grantedNames.join('、')}\n`;
+      message += `数量：${result.grantedIds.length}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleDevEncounterClearCommand(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    if (!this.isDevEncounterEnabled()) {
+      await this.bot.sendMessage(chatId, '❌ 该命令仅在开发环境可用');
+      return;
+    }
+
+    try {
+      await this.cultivationService.clearDevEncounterScript(userId);
+      await this.bot.sendMessage(chatId, '🧪 开发奇遇脚本已清除');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
   }
 
   async handleRealmCommand(msg: TelegramBot.Message): Promise<void> {
@@ -67,26 +355,42 @@ class CultivationCommandHandlers {
 
       let message = '🧙‍♂️ 修仙状态\n\n';
       message += `📊 当前境界：${status.fullName}\n`;
-      message += `📖 称号：${status.title}\n`;
-      message += `⚡ 灵力：${status.user.cultivation.spiritualPower}`;
-
-      if (status.nextRealmProgress) {
-        message += ` / ${status.realm.maxPower}\n`;
-        message += `📈 距离下一境界：${status.nextRealmProgress} 灵力`;
-      } else {
-        message += ' (已达巅峰)';
-      }
-
-      message += `\n\n💎 仙石：${status.immortalStones}`;
+      message += `⚡ 当前修为：${status.user.cultivation.spiritualPower}\n`;
+      message += `🧭 当前道行：${status.cultivationAttainment}\n`;
+      const mainDaoTrack = status.canonicalState?.mainDaoTrack;
+      const daoTrackDisplay = getMainDaoTrackDisplayName(mainDaoTrack);
+      message += isUniversalDaoTrack(mainDaoTrack)
+        ? `☯️ 当前道统：${daoTrackDisplay}\n`
+        : `☯️ 当前主道统：${daoTrackDisplay}\n`;
+      message += `📘 主修功法：${status.mainMethodName}\n`;
+      message += `🗂 已习法门：${status.knownBattleArtCount}\n`;
+      message += `✨ 已掌神通：${status.knownDivinePowerCount}\n`;
+      message += `💎 灵石：${status.immortalStones}`;
 
       if (status.ascensions > 0) {
         message += `\n☁️ 飞升次数：${status.ascensions}`;
         message += `\n👑 仙位印记：${status.immortalMarks}`;
       }
 
-      message += '\n\n📜 渡劫记录：';
-      message += `\n✅ 成功：${status.breakthroughSuccesses} 次`;
-      message += `\n❌ 失败：${status.breakthroughFailures} 次`;
+      if (status.breakthroughSuccesses + status.breakthroughFailures > 0) {
+        message += '\n\n📜 渡劫记录：';
+        message += `\n✅ 成功：${status.breakthroughSuccesses} 次`;
+        message += `\n❌ 失败：${status.breakthroughFailures} 次`;
+      }
+
+      if (status.activeBuff) {
+        message += `\n\n🔮 ${status.activeBuff}`;
+      }
+
+      const injury = status.canonicalState?.injuryState;
+      if (injury && injury.level !== 'none') {
+        message += `\n🩹 当前伤势：${formatInjuryLevelLabel(injury.level)}`;
+      }
+
+      const latestCombat = status.canonicalState?.combatHistorySummary.at(-1);
+      if (latestCombat) {
+        message += `\n⚔️ 最近斗法：${latestCombat.summary}`;
+      }
 
       if (status.canBreakthrough) {
         message += '\n\n⚡⚡⚡ 灵力已达巅峰！';
@@ -97,6 +401,132 @@ class CultivationCommandHandlers {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`/realm 命令错误: ${message}`, { userId });
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleLoadoutCommand(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    try {
+      const loadout = await this.cultivationService.getCombatLoadoutStatus(userId);
+      const availableBattleArts = loadout.availableBattleArts ?? [];
+      const availableSupportArts = loadout.availableSupportArts ?? [];
+      const availableDivinePowers = loadout.availableDivinePowers ?? [];
+      let message = '⚔️ 战斗构筑\n\n';
+      message += `当前境界：${loadout.realmName}\n`;
+      message += `主战法门：${formatNamedList(loadout.battleArts)}\n`;
+      message += `辅助法门：${loadout.supportArt?.name ?? '无'}\n`;
+      message += `已配神通：${formatNamedList(loadout.divinePowers)}\n\n`;
+      message += `可用主战法门：${formatOptionsList(availableBattleArts)}\n`;
+      message += `可用辅助法门：${formatOptionsList(availableSupportArts)}\n`;
+      message += `可用神通：${formatOptionsList(availableDivinePowers)}\n\n`;
+      message += '用法：\n';
+      message += '• /equip_art <id[,id...]>\n';
+      message += '• /equip_support <id|none>\n';
+      message += '• /equip_power <id[,id...]|none>';
+
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`/loadout 命令错误: ${message}`, { userId });
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleEquipArtCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    const ids = parseCsvIds(match?.[1]);
+    if (ids.length === 0) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/equip_art <id[,id...]> ');
+      return;
+    }
+
+    try {
+      const loadout = await this.cultivationService.updateBattleArtLoadout(userId, ids);
+      let message = '✅ 主战法门已更新\n\n';
+      message += `当前：${formatNamedList(loadout.battleArts)}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`/equip_art 命令错误: ${message}`, { userId });
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleEquipSupportCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    const raw = match?.[1]?.trim();
+    if (!raw) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/equip_support <id|none>');
+      return;
+    }
+
+    try {
+      const loadout = await this.cultivationService.updateSupportArtLoadout(
+        userId,
+        raw === 'none' ? null : raw
+      );
+      let message = '✅ 辅助法门已更新\n\n';
+      message += `当前：${loadout.supportArt?.name ?? '无'}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`/equip_support 命令错误: ${message}`, { userId });
+      await this.bot.sendMessage(chatId, `❌ ${message}`);
+    }
+  }
+
+  async handleEquipPowerCommand(
+    msg: TelegramBot.Message,
+    match?: RegExpExecArray | null
+  ): Promise<void> {
+    const chatId = msg.chat.id;
+    const userId = msg.from?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    const raw = match?.[1]?.trim();
+    if (!raw) {
+      await this.bot.sendMessage(chatId, '❌ 用法：/equip_power <id[,id...]|none>');
+      return;
+    }
+
+    const ids = raw === 'none' ? [] : parseCsvIds(raw);
+
+    try {
+      const loadout = await this.cultivationService.updateDivinePowerLoadout(userId, ids);
+      let message = '✅ 神通构筑已更新\n\n';
+      message += `当前：${formatNamedList(loadout.divinePowers)}`;
+      await this.bot.sendMessage(chatId, message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`/equip_power 命令错误: ${message}`, { userId });
       await this.bot.sendMessage(chatId, `❌ ${message}`);
     }
   }
@@ -122,26 +552,21 @@ class CultivationCommandHandlers {
       }
 
       const waitMsg = await this.bot.sendMessage(chatId, '🔮 占卜天机中...\n✨ 八卦流转，天机显现...');
-      await delay(1500);
-
       const result = await this.cultivationService.castDivination(userId, betAmount);
 
       let message = `${result.gua.emoji} 得 ${result.gua.name} - ${result.gua.meaning}！\n\n`;
-      message += `💰 下注：${result.betAmount} 仙石\n`;
+      message += `💰 下注：${result.betAmount} 灵石\n`;
       message += `📊 倍率：${result.gua.multiplier}x\n`;
 
       const resultEmoji = result.result > 0 ? '📈' : '📉';
       const resultText = result.result > 0 ? `+${result.result}` : `${result.result}`;
-      message += `${resultEmoji} 结果：${resultText} 仙石\n\n`;
+      message += `${resultEmoji} 结果：${resultText} 灵石\n\n`;
 
-      message += `💎 当前仙石：${result.stonesAfter}\n`;
-      message += `⚡ 当前灵力：${result.powerAfter}`;
+      message += `💎 当前灵石：${result.stonesAfter}\n`;
+      message += '🧭 本次不影响境界与修为\n\n';
+      message += `🔮 ${result.buff.label}：${result.buff.description}`;
 
-      if (result.realmChanged) {
-        message += `\n\n🎊 境界变化：${result.realmBefore} → ${result.realmAfter}！`;
-      }
-
-      message += '\n\n继续占卜：/divination <仙石>';
+      message += '\n\n继续占卜：/divination <灵石>';
       message += '\n查看走势：/divination_chart';
 
       await this.bot.deleteMessage(chatId, waitMsg.message_id);
@@ -253,8 +678,6 @@ class CultivationCommandHandlers {
 
     try {
       const waitMsg = await this.bot.sendMessage(chatId, '🌩️ 天劫降临！\n⚡⚡⚡ 九天雷劫齐至...');
-      await delay(2000);
-
       const result = await this.cultivationService.attemptBreakthrough(userId);
 
       await this.bot.deleteMessage(chatId, waitMsg.message_id);
@@ -277,8 +700,8 @@ class CultivationCommandHandlers {
     try {
       const status = await this.cultivationService.getCultivationStatus(userId);
 
-      if (status.realm.id !== 9) {
-        await this.bot.sendMessage(chatId, `❌ 只有大乘期修士才能飞升！\n\n当前境界：${status.fullName}`);
+      if (status.realm.canonicalId !== 'realm.yuanying') {
+        await this.bot.sendMessage(chatId, `❌ 只有元婴修士才能飞升！\n\n当前境界：${status.fullName}`);
         return;
       }
 
@@ -293,10 +716,10 @@ class CultivationCommandHandlers {
         return;
       }
 
-      let message = '🌟 您已达到大乘期圆满！\n☁️ 天门已开，是否飞升仙界？\n\n';
+      let message = '🌟 您已达到元婴圆满！\n☁️ 天门已开，是否飞升仙界？\n\n';
       message += '飞升后：\n';
       message += '✅ 获得 ☁️ 仙位印记 x1（永久）\n';
-      message += `✅ 保留仙石：${status.immortalStones}\n`;
+      message += `✅ 保留灵石：${status.immortalStones}\n`;
       message += '⚠️ 灵力重置为 0\n';
       message += '⚠️ 境界回到炼气期\n\n';
       message += '使用 /confirm_ascension 确认飞升';
@@ -319,9 +742,6 @@ class CultivationCommandHandlers {
 
     try {
       const waitMsg = await this.bot.sendMessage(chatId, '☁️☁️☁️ 天门洞开...\n🌟 飞升进行中...');
-
-      await delay(2000);
-
       const result = await this.cultivationService.ascend(userId);
 
       await this.bot.deleteMessage(chatId, waitMsg.message_id);
@@ -346,15 +766,23 @@ class CultivationCommandHandlers {
       let message = '🏆 修仙排行榜\n\n';
       message += '⚡ 灵力榜（Top 10）\n';
       powerRanking.forEach((user, index) => {
-        const display = formatRealmDisplay(user.cultivation.spiritualPower);
+        const canonicalState = user.cultivation.canonical?.state ?? {
+          realmId: getCanonicalRealmByPower(user.cultivation.spiritualPower).id,
+          currentPower: user.cultivation.spiritualPower
+        };
+        const display = formatCanonicalRealmDisplay(canonicalState);
         message += `${index + 1}. ${user.username || `用户${user.userId}`} - `;
-        message += `${user.cultivation.spiritualPower} 灵力 `;
-        message += `(${display.realm.emoji}${display.realm.name})\n`;
+        message += `${user.cultivation.spiritualPower} 修为 `;
+        message += `(${display.realm.name})\n`;
       });
 
       message += '\n🏔️ 境界榜（Top 10）\n';
       realmRanking.forEach((user, index) => {
-        const display = formatRealmDisplay(user.cultivation.spiritualPower);
+        const canonicalState = user.cultivation.canonical?.state ?? {
+          realmId: getCanonicalRealmByPower(user.cultivation.spiritualPower).id,
+          currentPower: user.cultivation.spiritualPower
+        };
+        const display = formatCanonicalRealmDisplay(canonicalState);
         message += `${index + 1}. ${user.username || `用户${user.userId}`} - ${display.fullName}\n`;
       });
 
@@ -391,7 +819,7 @@ class CultivationCommandHandlers {
       let message = '📊 修仙统计\n\n';
       message += `🧙‍♂️ 当前境界：${status.fullName}\n`;
       message += `⚡ 当前灵力：${status.user.cultivation.spiritualPower}\n`;
-      message += `💎 当前仙石：${status.immortalStones}\n\n`;
+      message += `💎 当前灵石：${status.immortalStones}\n\n`;
 
       message += '📈 历史最高：\n';
       message += `境界：${status.user.cultivation.peakRealm}\n`;
@@ -409,7 +837,7 @@ class CultivationCommandHandlers {
       message += '\n🔮 占卜统计：\n';
       message += `总次数：${divinationStats.totalGames}\n`;
       message += `获胜：${divinationStats.wins} | 失败：${divinationStats.losses}\n`;
-      message += `净收益：${divinationStats.netProfit > 0 ? '+' : ''}${divinationStats.netProfit} 仙石\n`;
+      message += `净收益：${divinationStats.netProfit > 0 ? '+' : ''}${divinationStats.netProfit} 灵石\n`;
 
       if (status.ascensions > 0) {
         message += '\n☁️ 飞升记录：\n';
@@ -444,14 +872,14 @@ class CultivationCommandHandlers {
       const status = await this.cultivationService.getCultivationStatus(userId);
       const divinationStats = await this.cultivationService.getDivinationStats(userId);
 
-      let message = '💎 仙石余额\n\n';
-      message += `当前仙石：${status.immortalStones}\n\n`;
+      let message = '💎 灵石余额\n\n';
+      message += `当前灵石：${status.immortalStones}\n\n`;
       message += '📊 占卜盈亏：\n';
       message += `总盈利：+${divinationStats.totalGain}\n`;
       message += `总亏损：-${divinationStats.totalLoss}\n`;
       message += `净收益：${divinationStats.netProfit > 0 ? '+' : ''}${divinationStats.netProfit}\n\n`;
       message += '💡 提示：\n';
-      message += '• 完成任务获得仙石\n';
+      message += '• 完成任务获得灵石\n';
       message += '• 使用 /divination <金额> 占卜天机';
 
       await this.bot.sendMessage(chatId, message);

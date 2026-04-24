@@ -1,4 +1,14 @@
-import type { LineageId, RealmId } from '../types/cultivationCanonical.js';
+import type {
+  BreakthroughMethodDefinition,
+  BreakthroughTransitionId,
+  CanonicalMainMethod,
+  DivinePowerBreakthroughRequirement,
+  FoundationDefinition,
+  LineageId,
+  MainMethodZhujiOutcome,
+  RealmId,
+  SpecializedLineageId
+} from '../types/cultivationCanonical.js';
 import { formatRealmSubStageDisplay } from './xuanjianV2Registry.js';
 
 type StageName =
@@ -27,7 +37,81 @@ export const XUANJIAN_REALMS = [
   { id: 'realm.yuanying', name: '元婴', minPower: 5620, maxPower: 10620, coefficient: 1.2, nextPower: null }
 ] as const;
 
-export const XUANJIAN_MAIN_METHODS = [
+const LIANQI_ROUTE_OUTCOMES: Record<SpecializedLineageId, MainMethodZhujiOutcome> = {
+  mingyang: {
+    foundationId: 'foundation.zhuji_mingyang',
+    mainDaoTrack: 'mingyang',
+    continuationMethodId: 'method.zhuji_mingyang_script',
+    grade: 5
+  },
+  lihuo: {
+    foundationId: 'foundation.zhuji_lihuo',
+    mainDaoTrack: 'lihuo',
+    continuationMethodId: 'method.zhuji_lihuo_script',
+    grade: 5
+  },
+  duijin: {
+    foundationId: 'foundation.zhuji_duijin',
+    mainDaoTrack: 'duijin',
+    continuationMethodId: 'method.zhuji_duijin_script',
+    grade: 5
+  },
+  pinshui: {
+    foundationId: 'foundation.zhuji_pinshui',
+    mainDaoTrack: 'pinshui',
+    continuationMethodId: 'method.zhuji_pinshui_script',
+    grade: 5
+  },
+  zhengmu: {
+    foundationId: 'foundation.zhuji_zhengmu',
+    mainDaoTrack: 'zhengmu',
+    continuationMethodId: 'method.zhuji_zhengmu_script',
+    grade: 5
+  }
+};
+
+export const XUANJIAN_FOUNDATIONS: FoundationDefinition[] = [
+  {
+    id: 'foundation.zhuji_mingyang',
+    name: '明阳筑基',
+    mainDaoTrack: 'mingyang',
+    firstDivinePowerId: 'power.invoking_heaven_gate'
+  },
+  {
+    id: 'foundation.zhuji_lihuo',
+    name: '离火筑基',
+    mainDaoTrack: 'lihuo',
+    firstDivinePowerId: 'power.great_departure_book'
+  },
+  {
+    id: 'foundation.zhuji_duijin',
+    name: '兑金筑基',
+    mainDaoTrack: 'duijin',
+    firstDivinePowerId: 'power.asking_two_forgetfulness'
+  },
+  {
+    id: 'foundation.zhuji_pinshui',
+    name: '牝水筑基',
+    mainDaoTrack: 'pinshui',
+    firstDivinePowerId: 'power.southern_sorrow_water'
+  },
+  {
+    id: 'foundation.zhuji_zhengmu',
+    name: '正木筑基',
+    mainDaoTrack: 'zhengmu',
+    firstDivinePowerId: 'power.hundred_bodies'
+  }
+];
+
+const LEGACY_PRE_ZHUJI_METHOD_MAP: Record<string, string> = {
+  'method.zhuji_mingyang_script': 'method.lianqi_mingyang_route',
+  'method.zhuji_lihuo_script': 'method.lianqi_lihuo_route',
+  'method.zhuji_duijin_script': 'method.lianqi_duijin_route',
+  'method.zhuji_pinshui_script': 'method.lianqi_pinshui_route',
+  'method.zhuji_zhengmu_script': 'method.lianqi_zhengmu_route'
+};
+
+export const XUANJIAN_MAIN_METHODS: CanonicalMainMethod[] = [
   {
     id: 'method.starter_tuna',
     name: '玄门吐纳法',
@@ -47,7 +131,123 @@ export const XUANJIAN_MAIN_METHODS = [
     artSlotsBonus: 0,
     divinePowerSlotsBonus: 0,
     breakthroughAssist: ['breakthrough.taixi_to_lianqi'],
-    requiredAura: []
+    requiredAura: [],
+    lineageTag: undefined
+  },
+  {
+    id: 'method.lianqi_mingyang_route',
+    name: '明阳引基诀',
+    category: 'main_method',
+    tier: '黄',
+    realmFloor: 'realm.lianqi',
+    realmCeiling: 'realm.lianqi',
+    source: 'runtime.seed',
+    tags: ['mingyang', 'lianqi'],
+    dropScope: 'heritage',
+    enabledInV1: true,
+    reservedForV2: false,
+    grade: 3,
+    cultivationMultiplier: 1.03,
+    combatBias: { attack: 1, defense: 0, sense: 1, speed: 0 },
+    foundationAffinity: ['foundation.zhuji_mingyang'],
+    artSlotsBonus: 0,
+    divinePowerSlotsBonus: 0,
+    breakthroughAssist: ['breakthrough.lianqi_to_zhuji_base'],
+    requiredAura: [],
+    lineageTag: 'mingyang',
+    zhujiOutcome: LIANQI_ROUTE_OUTCOMES.mingyang
+  },
+  {
+    id: 'method.lianqi_lihuo_route',
+    name: '离火引基诀',
+    category: 'main_method',
+    tier: '黄',
+    realmFloor: 'realm.lianqi',
+    realmCeiling: 'realm.lianqi',
+    source: 'runtime.seed',
+    tags: ['lihuo', 'lianqi'],
+    dropScope: 'heritage',
+    enabledInV1: true,
+    reservedForV2: false,
+    grade: 3,
+    cultivationMultiplier: 1.03,
+    combatBias: { attack: 1, defense: 0, sense: 0, speed: 1 },
+    foundationAffinity: ['foundation.zhuji_lihuo'],
+    artSlotsBonus: 0,
+    divinePowerSlotsBonus: 0,
+    breakthroughAssist: ['breakthrough.lianqi_to_zhuji_base'],
+    requiredAura: [],
+    lineageTag: 'lihuo',
+    zhujiOutcome: LIANQI_ROUTE_OUTCOMES.lihuo
+  },
+  {
+    id: 'method.lianqi_duijin_route',
+    name: '兑金引基诀',
+    category: 'main_method',
+    tier: '黄',
+    realmFloor: 'realm.lianqi',
+    realmCeiling: 'realm.lianqi',
+    source: 'runtime.seed',
+    tags: ['duijin', 'lianqi'],
+    dropScope: 'heritage',
+    enabledInV1: true,
+    reservedForV2: false,
+    grade: 3,
+    cultivationMultiplier: 1.03,
+    combatBias: { attack: 1, defense: 1, sense: 0, speed: 0 },
+    foundationAffinity: ['foundation.zhuji_duijin'],
+    artSlotsBonus: 0,
+    divinePowerSlotsBonus: 0,
+    breakthroughAssist: ['breakthrough.lianqi_to_zhuji_base'],
+    requiredAura: [],
+    lineageTag: 'duijin',
+    zhujiOutcome: LIANQI_ROUTE_OUTCOMES.duijin
+  },
+  {
+    id: 'method.lianqi_pinshui_route',
+    name: '牝水引基诀',
+    category: 'main_method',
+    tier: '黄',
+    realmFloor: 'realm.lianqi',
+    realmCeiling: 'realm.lianqi',
+    source: 'runtime.seed',
+    tags: ['pinshui', 'lianqi'],
+    dropScope: 'heritage',
+    enabledInV1: true,
+    reservedForV2: false,
+    grade: 3,
+    cultivationMultiplier: 1.03,
+    combatBias: { attack: 0, defense: 1, sense: 1, speed: 0 },
+    foundationAffinity: ['foundation.zhuji_pinshui'],
+    artSlotsBonus: 0,
+    divinePowerSlotsBonus: 0,
+    breakthroughAssist: ['breakthrough.lianqi_to_zhuji_base'],
+    requiredAura: [],
+    lineageTag: 'pinshui',
+    zhujiOutcome: LIANQI_ROUTE_OUTCOMES.pinshui
+  },
+  {
+    id: 'method.lianqi_zhengmu_route',
+    name: '正木引基诀',
+    category: 'main_method',
+    tier: '黄',
+    realmFloor: 'realm.lianqi',
+    realmCeiling: 'realm.lianqi',
+    source: 'runtime.seed',
+    tags: ['zhengmu', 'lianqi'],
+    dropScope: 'heritage',
+    enabledInV1: true,
+    reservedForV2: false,
+    grade: 3,
+    cultivationMultiplier: 1.03,
+    combatBias: { attack: 0, defense: 1, sense: 0, speed: 1 },
+    foundationAffinity: ['foundation.zhuji_zhengmu'],
+    artSlotsBonus: 0,
+    divinePowerSlotsBonus: 0,
+    breakthroughAssist: ['breakthrough.lianqi_to_zhuji_base'],
+    requiredAura: [],
+    lineageTag: 'zhengmu',
+    zhujiOutcome: LIANQI_ROUTE_OUTCOMES.zhengmu
   },
   {
     id: 'method.zhuji_mingyang_script',
@@ -69,7 +269,15 @@ export const XUANJIAN_MAIN_METHODS = [
     divinePowerSlotsBonus: 0,
     breakthroughAssist: [],
     requiredAura: [],
-    lineageTag: 'mingyang'
+    lineageTag: 'mingyang',
+    zifuPowerCoverage: {
+      candidatePowerIds: [
+        'power.clear_heart',
+        'power.long_bright_steps',
+        'power.imperial_gaze_origin'
+      ],
+      maxPowerCount: 5
+    }
   },
   {
     id: 'method.zhuji_lihuo_script',
@@ -161,8 +369,128 @@ export const XUANJIAN_MAIN_METHODS = [
   }
 ] as const;
 
+export const XUANJIAN_BREAKTHROUGH_METHODS: BreakthroughMethodDefinition[] = [
+  {
+    id: 'breakthrough.taixi_to_lianqi_base',
+    name: '吐纳引气术',
+    applicableTransition: 'taixi_to_lianqi',
+    successRateBonus: 0,
+    stabilityDelta: 0,
+    requiredItems: []
+  },
+  {
+    id: 'breakthrough.lianqi_to_zhuji_base',
+    name: '凝基内转术',
+    applicableTransition: 'lianqi_to_zhuji',
+    successRateBonus: 0,
+    stabilityDelta: 0,
+    requiredItems: []
+  },
+  {
+    id: 'breakthrough.zhuji_to_zifu_base',
+    name: '飞举仙基术',
+    applicableTransition: 'zhuji_to_zifu',
+    successRateBonus: 0,
+    stabilityDelta: 0,
+    requiredItems: [],
+    bonusOutcomeIds: ['power.zifu_first_light'],
+    compatibility: {
+      requiresFoundation: true
+    }
+  },
+  {
+    id: 'breakthrough.zifu_divine_power_base',
+    name: '紫府衍神术',
+    applicableTransition: 'zifu_divine_power',
+    successRateBonus: 0,
+    stabilityDelta: 0,
+    requiredItems: []
+  },
+  {
+    id: 'breakthrough.zhuji_to_zifu_mingyang_manifest',
+    name: '明阳化神秘法',
+    applicableTransition: 'zhuji_to_zifu',
+    successRateBonus: 0.1,
+    stabilityDelta: 2,
+    requiredItems: [{ definitionId: 'material.mingyang_manifest_token', count: 1 }],
+    requiredEnvironment: ['env.mingyang_surge'],
+    sideEffects: ['zifu_mingyang_burn'],
+    bonusOutcomeIds: ['power.invoking_heaven_gate'],
+    compatibility: {
+      requiresFoundation: true,
+      allowedLineages: ['mingyang'],
+      minMethodGrade: 5
+    }
+  },
+  {
+    id: 'breakthrough.zhuji_to_zifu_lihuo_manifest',
+    name: '离火化神秘法',
+    applicableTransition: 'zhuji_to_zifu',
+    successRateBonus: 0.1,
+    stabilityDelta: 2,
+    requiredItems: [{ definitionId: 'material.lihuo_manifest_token', count: 1 }],
+    requiredEnvironment: ['env.lihuo_surge'],
+    sideEffects: ['zifu_lihuo_scorch'],
+    bonusOutcomeIds: ['power.orderly_conquest'],
+    compatibility: {
+      requiresFoundation: true,
+      allowedLineages: ['lihuo'],
+      minMethodGrade: 5
+    }
+  },
+  {
+    id: 'breakthrough.zhuji_to_zifu_duijin_manifest',
+    name: '兑金化神秘法',
+    applicableTransition: 'zhuji_to_zifu',
+    successRateBonus: 0.1,
+    stabilityDelta: 2,
+    requiredItems: [{ definitionId: 'material.duijin_manifest_token', count: 1 }],
+    requiredEnvironment: ['env.duijin_surge'],
+    sideEffects: ['zifu_duijin_strain'],
+    bonusOutcomeIds: ['power.rank_from_luo'],
+    compatibility: {
+      requiresFoundation: true,
+      allowedLineages: ['duijin'],
+      minMethodGrade: 5
+    }
+  },
+  {
+    id: 'breakthrough.zifu_to_jindan_direct_gold',
+    name: '正法求金',
+    applicableTransition: 'zifu_to_jindan',
+    successRateBonus: 0.12,
+    stabilityDelta: 3,
+    requiredItems: [{ definitionId: 'material.same_origin_treasure', count: 1 }],
+    sideEffects: ['jindan_path.direct_gold'],
+    bonusOutcomeIds: ['goldNature.direct_mingyang'],
+    compatibility: {
+      requiredKnownPowerIds: [
+        'power.invoking_heaven_gate',
+        'power.clear_heart',
+        'power.long_bright_steps',
+        'power.imperial_gaze_origin',
+        'power.scarlet_sundering_bolt'
+      ],
+      minMethodGrade: 5
+    },
+    jindanRoute: {
+      pathType: 'direct_gold',
+      resultGoldNatureTag: 'goldNature.direct_mingyang',
+      failureRisk: 'medium',
+      requiredPowerPattern: {
+        requiredPowerIds: [
+          'power.invoking_heaven_gate',
+          'power.clear_heart',
+          'power.long_bright_steps',
+          'power.imperial_gaze_origin',
+          'power.scarlet_sundering_bolt'
+        ]
+      }
+    }
+  }
+] as const;
+
 export type CanonicalRealmTemplate = (typeof XUANJIAN_REALMS)[number];
-export type CanonicalMainMethod = (typeof XUANJIAN_MAIN_METHODS)[number];
 
 export interface CanonicalRealmStage {
   name: StageName;
@@ -235,12 +563,88 @@ export function getMainMethodById(methodId: string): CanonicalMainMethod {
   return findMainMethodById(methodId) ?? XUANJIAN_MAIN_METHODS[0]!;
 }
 
+export function getFoundationById(foundationId: string): FoundationDefinition | null {
+  return XUANJIAN_FOUNDATIONS.find((foundation) => foundation.id === foundationId) ?? null;
+}
+
+export function resolveFirstDivinePowerFromFoundation(foundationId: string): string | null {
+  return getFoundationById(foundationId)?.firstDivinePowerId ?? null;
+}
+
+export function getBreakthroughMethodById(methodId: string): BreakthroughMethodDefinition | null {
+  return XUANJIAN_BREAKTHROUGH_METHODS.find((method) => method.id === methodId) ?? null;
+}
+
+export function getBreakthroughTransitionByRealm(currentRealmId: RealmId): BreakthroughTransitionId | null {
+  switch (currentRealmId) {
+    case 'realm.taixi':
+      return 'taixi_to_lianqi';
+    case 'realm.lianqi':
+      return 'lianqi_to_zhuji';
+    case 'realm.zhuji':
+      return 'zhuji_to_zifu';
+    case 'realm.zifu':
+      return 'zifu_to_jindan';
+    default:
+      return null;
+  }
+}
+
+export function getDefaultBreakthroughMethodId(currentRealmId: RealmId): string | null {
+  const transition = getBreakthroughTransitionByRealm(currentRealmId);
+  const method = transition
+    ? XUANJIAN_BREAKTHROUGH_METHODS.find((item) => item.applicableTransition === transition)
+    : null;
+
+  return method?.id ?? null;
+}
+
 export function findCanonicalRealmById(realmId: string): CanonicalRealmTemplate | null {
   return XUANJIAN_REALMS.find((realm) => realm.id === realmId) ?? null;
 }
 
 export function findMainMethodById(methodId: string): CanonicalMainMethod | null {
   return XUANJIAN_MAIN_METHODS.find((method) => method.id === methodId) ?? null;
+}
+
+export function normalizeMainMethodIdForRealm(methodId: string, realmId: RealmId): string {
+  if (realmId !== 'realm.taixi' && realmId !== 'realm.lianqi') {
+    return methodId;
+  }
+
+  return LEGACY_PRE_ZHUJI_METHOD_MAP[methodId] ?? methodId;
+}
+
+export function resolveZhujiOutcomeFromMainMethod(methodId: string): MainMethodZhujiOutcome | null {
+  const normalizedMethodId = normalizeMainMethodIdForRealm(methodId, 'realm.lianqi');
+  const method = findMainMethodById(normalizedMethodId) ?? findMainMethodById(methodId);
+
+  if (!method) {
+    return null;
+  }
+
+  if (method.zhujiOutcome) {
+    return method.zhujiOutcome;
+  }
+
+  if (!method.lineageTag) {
+    return null;
+  }
+
+  const continuationMethodId = method.id.startsWith('method.zhuji_')
+    ? method.id
+    : LIANQI_ROUTE_OUTCOMES[method.lineageTag]?.continuationMethodId;
+  const foundationId = method.foundationAffinity[0];
+  if (!continuationMethodId || !foundationId) {
+    return null;
+  }
+
+  return {
+    foundationId,
+    mainDaoTrack: method.lineageTag,
+    continuationMethodId,
+    grade: method.grade
+  };
 }
 
 export function getDurationBaseValue(duration: number): number {
@@ -456,12 +860,41 @@ export const XUANJIAN_BREAKTHROUGH_REQUIREMENTS = {
     requiredPower: 1120,
     requiredAttainment: 10,
     requiredItems: [{ definitionId: 'material.mysterious_breakthrough_token', count: 1 }]
+  },
+  'realm.zifu': {
+    targetRealmId: 'realm.jindan',
+    requiredPower: 2620,
+    requiredAttainment: 80,
+    requiredItems: [{ definitionId: 'material.jindan_gold_catalyst', count: 1 }]
   }
 } as const satisfies Partial<Record<RealmId, BreakthroughRequirement>>;
+
+export const ZIFU_DIVINE_POWER_REQUIREMENTS: DivinePowerBreakthroughRequirement[] = [
+  {
+    id: 'breakthrough.zifu_power_2_base',
+    targetPowerOrdinal: 2,
+    requiredPower: 1360,
+    requiredAttainment: 18,
+    requiredItems: [
+      {
+        definitionId: 'material.zifu_second_power_token',
+        count: 1
+      }
+    ]
+  }
+];
 
 export function getBreakthroughRequirement(realmId: RealmId) {
   const requirements = XUANJIAN_BREAKTHROUGH_REQUIREMENTS as Partial<Record<RealmId, BreakthroughRequirement>>;
   return requirements[realmId] ?? null;
+}
+
+export function getDivinePowerBreakthroughRequirement(
+  targetPowerOrdinal: DivinePowerBreakthroughRequirement['targetPowerOrdinal']
+) {
+  return ZIFU_DIVINE_POWER_REQUIREMENTS.find(
+    (requirement) => requirement.targetPowerOrdinal === targetPowerOrdinal
+  ) ?? null;
 }
 
 export {
@@ -475,6 +908,7 @@ export {
   getRealmSubStageById,
   getRealmSubStagesByRealmId,
   getRuntimeContentName,
+  getRuntimeContentNameMap,
   getStarterBattleArtIds,
   getRuntimeReadyContentBatch,
   getUnlockedRuntimeReadyBattleArts,

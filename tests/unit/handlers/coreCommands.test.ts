@@ -1,11 +1,13 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import config from '../../../config/index.js';
 import CoreCommandHandlers from '../../../src/handlers/coreCommands.js';
 import MainChain from '../../../src/models/MainChain.js';
 import User from '../../../src/models/User.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 
 describe('CoreCommandHandlers', () => {
   const sendMessage = vi.fn();
-  const config = {
+  const botConfigMock = {
     getBotInfo: vi.fn().mockReturnValue({
       description: '基于科学自控力理论的专注任务管理机器人'
     }),
@@ -18,9 +20,14 @@ describe('CoreCommandHandlers', () => {
   };
 
   const onError = vi.fn();
+  const originalReservationDelay = config.linearDelay.defaultReservationDelay;
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    config.linearDelay.defaultReservationDelay = originalReservationDelay;
   });
 
   test('/start initializes the user account before sending the welcome message', async () => {
@@ -28,7 +35,7 @@ describe('CoreCommandHandlers', () => {
 
     const handler = new CoreCommandHandlers({
       bot: { sendMessage } as never,
-      config: config as never,
+      config: botConfigMock as never,
       taskService: taskService as never,
       onError
     });
@@ -47,6 +54,8 @@ describe('CoreCommandHandlers', () => {
       lastName: 'Jones'
     });
     expect(sendMessage).toHaveBeenCalledTimes(1);
+    const welcomeMessage = sendMessage.mock.calls[0]?.[1] as string;
+    expect(welcomeMessage).toContain('胎息 → 练气 → 筑基 → 紫府 → 金丹 → 元婴');
   });
 
   test('/stats reuses todayStats from user status instead of issuing a second daily stats query', async () => {
@@ -77,7 +86,7 @@ describe('CoreCommandHandlers', () => {
 
     const handler = new CoreCommandHandlers({
       bot: { sendMessage } as never,
-      config: config as never,
+      config: botConfigMock as never,
       taskService: taskService as never,
       onError
     });
@@ -122,7 +131,7 @@ describe('CoreCommandHandlers', () => {
 
     const handler = new CoreCommandHandlers({
       bot: { sendMessage } as never,
-      config: config as never,
+      config: botConfigMock as never,
       taskService: taskService as never,
       onError
     });
@@ -134,6 +143,80 @@ describe('CoreCommandHandlers', () => {
       5515965469,
       expect.stringContaining('🎯 主链状态：已中断'),
       expect.any(Object)
+    );
+  });
+
+  test('/help should render configured reservation delay in help text', async () => {
+    config.linearDelay.defaultReservationDelay = 90 * 60;
+    botConfigMock.getSupportedCommands.mockReturnValue([
+      { command: 'reserve', description: '预约1小时30分钟后开始任务' }
+    ]);
+
+    const handler = new CoreCommandHandlers({
+      bot: { sendMessage } as never,
+      config: botConfigMock as never,
+      taskService: taskService as never,
+      onError
+    });
+
+    await handler.handleHelpCommand(5515965469);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      5515965469,
+      expect.stringContaining('⏰ <b>1小时30分钟预约</b> - 降低60%的启动阻力'),
+      expect.objectContaining({ parse_mode: 'HTML' })
+    );
+  });
+
+  test('文本输入提示中的预约按钮应显示配置化延迟', async () => {
+    config.linearDelay.defaultReservationDelay = 90 * 60;
+
+    const handler = new CoreCommandHandlers({
+      bot: { sendMessage } as never,
+      config: botConfigMock as never,
+      taskService: taskService as never,
+      onError
+    });
+
+    await handler.handleTextInput({
+      from: { id: 5515965469 },
+      text: '学习系统设计'
+    } as never);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      5515965469,
+      expect.any(String),
+      expect.objectContaining({
+        reply_markup: {
+          inline_keyboard: [[
+            {
+              text: `🚀 立即创建${DEFAULT_TASK_DURATION_MINUTES}分钟任务`,
+              callback_data: `create_task:学习系统设计:${DEFAULT_TASK_DURATION_MINUTES}`
+            },
+            {
+              text: '⏰ 预约1小时30分钟后开始',
+              callback_data: `reserve_task:学习系统设计:${DEFAULT_TASK_DURATION_MINUTES}`
+            }
+          ]]
+        }
+      })
+    );
+  });
+
+  test('/help should render the unified default task duration in examples', async () => {
+    const handler = new CoreCommandHandlers({
+      bot: { sendMessage } as never,
+      config: botConfigMock as never,
+      taskService: taskService as never,
+      onError
+    });
+
+    await handler.handleHelpCommand(5515965469);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      5515965469,
+      expect.stringContaining(`<code>/task 写作业</code> - 创建默认${DEFAULT_TASK_DURATION_MINUTES}分钟任务`),
+      expect.objectContaining({ parse_mode: 'HTML' })
     );
   });
 });

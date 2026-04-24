@@ -1,18 +1,24 @@
 import { describe, expect, test } from 'vitest';
-import { resolveInjuryRecovery } from '../../../src/services/InjuryRecoveryEngine.js';
+import {
+  resolveCombatInjury,
+  resolveInjuryRecovery
+} from '../../../src/services/InjuryRecoveryEngine.js';
 
 describe('InjuryRecoveryEngine', () => {
   test('returns unchanged power when current state has no injury', () => {
     const result = resolveInjuryRecovery({
       duration: 90,
       rawPowerGain: 2,
-      injuryLevel: 'none'
+      injuryLevel: 'none',
+      injuryPoints: 0
     });
 
     expect(result).toEqual({
       applied: false,
       previousInjuryLevel: 'none',
+      previousInjuryPoints: 0,
       nextInjuryLevel: 'none',
+      nextInjuryPoints: 0,
       powerCost: 0,
       finalPowerGain: 2,
       summary: null
@@ -23,42 +29,50 @@ describe('InjuryRecoveryEngine', () => {
     const result = resolveInjuryRecovery({
       duration: 30,
       rawPowerGain: 2,
-      injuryLevel: 'light'
+      injuryLevel: 'light',
+      injuryPoints: 1
     });
 
     expect(result.applied).toBe(false);
     expect(result.nextInjuryLevel).toBe('light');
+    expect(result.nextInjuryPoints).toBe(1);
     expect(result.finalPowerGain).toBe(2);
     expect(result.summary).toBeNull();
   });
 
-  test('downgrades medium injury by one tier and consumes half of raw power gain', () => {
+  test('90 分钟专注可将中伤两点直接恢复到无伤，并吞掉一半原始修为', () => {
     const result = resolveInjuryRecovery({
       duration: 90,
       rawPowerGain: 2,
-      injuryLevel: 'medium'
+      injuryLevel: 'medium',
+      injuryPoints: 2
     });
 
     expect(result).toEqual({
       applied: true,
       previousInjuryLevel: 'medium',
-      nextInjuryLevel: 'light',
+      previousInjuryPoints: 2,
+      nextInjuryLevel: 'none',
+      nextInjuryPoints: 0,
       powerCost: 1,
       finalPowerGain: 1,
-      summary: '🩹 伤势恢复：中伤 -> 轻伤'
+      summary: '🩹 伤势恢复：中伤 -> 无伤'
     });
   });
 
-  test('only recovers one tier from heavy injury', () => {
+  test('120 分钟以上专注可一次清空三点重伤值', () => {
     const result = resolveInjuryRecovery({
       duration: 180,
       rawPowerGain: 5,
-      injuryLevel: 'heavy'
+      injuryLevel: 'heavy',
+      injuryPoints: 3
     });
 
     expect(result.applied).toBe(true);
     expect(result.previousInjuryLevel).toBe('heavy');
-    expect(result.nextInjuryLevel).toBe('medium');
+    expect(result.previousInjuryPoints).toBe(3);
+    expect(result.nextInjuryLevel).toBe('none');
+    expect(result.nextInjuryPoints).toBe(0);
     expect(result.powerCost).toBe(2);
     expect(result.finalPowerGain).toBe(3);
   });
@@ -67,11 +81,48 @@ describe('InjuryRecoveryEngine', () => {
     const result = resolveInjuryRecovery({
       duration: 60,
       rawPowerGain: 1,
-      injuryLevel: 'light'
+      injuryLevel: 'light',
+      injuryPoints: 1
     });
 
     expect(result.powerCost).toBe(0);
     expect(result.finalPowerGain).toBe(1);
     expect(result.nextInjuryLevel).toBe('none');
+    expect(result.nextInjuryPoints).toBe(0);
+  });
+
+  test('combat injury stacks on top of post-recovery points and overflows into currentPower loss', () => {
+    const result = resolveCombatInjury({
+      currentInjuryLevel: 'light',
+      currentInjuryPoints: 1,
+      incomingInjuryLevel: 'heavy',
+      currentPower: 100,
+      realmMinPower: 0
+    });
+
+    expect(result).toEqual({
+      nextInjuryLevel: 'heavy',
+      nextInjuryPoints: 3,
+      incomingInjuryPoints: 3,
+      overflowPoints: 1,
+      powerLoss: 5,
+      nextCurrentPower: 95
+    });
+  });
+
+  test('overflow loss never reduces currentPower below current realm floor', () => {
+    const result = resolveCombatInjury({
+      currentInjuryLevel: 'heavy',
+      currentInjuryPoints: 3,
+      incomingInjuryLevel: 'heavy',
+      currentPower: 122,
+      realmMinPower: 120
+    });
+
+    expect(result.nextInjuryLevel).toBe('heavy');
+    expect(result.nextInjuryPoints).toBe(3);
+    expect(result.overflowPoints).toBe(3);
+    expect(result.powerLoss).toBe(2);
+    expect(result.nextCurrentPower).toBe(120);
   });
 });

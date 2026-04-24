@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { generateId, formatDuration, parseTaskCommand } from '../src/utils/helpers.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../src/types/taskDefaults.js';
 import { LINEAR_DELAY_PRINCIPLE, SACRED_SEAT_PRINCIPLE } from '../src/utils/constants.js';
 
 describe('系统基础功能验证', () => {
@@ -22,7 +23,11 @@ describe('系统基础功能验证', () => {
 
     const result2 = parseTaskCommand('写作业');
     expect(result2.description).toBe('写作业');
-    expect(result2.duration).toBe(25);
+    expect(result2.duration).toBe(DEFAULT_TASK_DURATION_MINUTES);
+  });
+
+  test('统一默认任务时长常量应为60分钟', () => {
+    expect(DEFAULT_TASK_DURATION_MINUTES).toBe(60);
   });
 
   test('神圣座位原理常量验证', () => {

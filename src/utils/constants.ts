@@ -1,6 +1,8 @@
 type ValueOf<T> = T[keyof T];
 
 // 应用常量定义
+import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
+
 export const TASK_STATUS = {
   PENDING: 'pending',
   RUNNING: 'running',
@@ -55,7 +57,7 @@ export const FOCUS_LEVELS = [
 export const TASK_CONSTRAINTS = {
   MIN_DURATION: 5,
   MAX_DURATION: 480,
-  DEFAULT_DURATION: 25,
+  DEFAULT_DURATION: DEFAULT_TASK_DURATION_MINUTES,
   PROGRESS_INTERVALS: [0.25, 0.5, 0.75]
 } as const;
 
@@ -101,6 +103,8 @@ export const CALLBACK_PREFIXES = {
   START_RESERVED: 'start_reserved_',
   DELAY_RESERVATION: 'delay_reservation_',
   CANCEL_RESERVATION: 'cancel_reservation_',
+  ENCOUNTER_ABANDON: 'encounter_abandon_',
+  ENCOUNTER_CONTEST: 'encounter_contest_',
   SETTINGS: 'settings_',
   PATTERN_EXECUTE: 'pattern_execute_',
   PRECEDENT_BREAK: 'precedent_break_',
@@ -187,7 +191,7 @@ export const NOTIFICATION_TEMPLATES = {
 } as const;
 
 export const DEFAULT_SETTINGS = {
-  DEFAULT_DURATION: 25,
+  DEFAULT_DURATION: DEFAULT_TASK_DURATION_MINUTES,
   REMINDER_ENABLED: true,
   TIMEZONE: TIMEZONES.CHINA,
   LANGUAGE: LANGUAGES.CHINESE

@@ -1,3 +1,9 @@
+import {
+  DEFAULT_TASK_DURATION_MINUTES,
+  getMinTaskDurationMinutes,
+  MAX_TASK_DURATION_MINUTES
+} from '../types/taskDefaults.js';
+
 export interface RetryOptions {
   maxAttempts?: number;
   delay?: number;
@@ -43,6 +49,37 @@ export function formatDuration(minutes: number | null | undefined): string {
     return mins > 0 ? `${hours}小时${mins}分钟` : `${hours}小时`;
   }
   return `${mins}分钟`;
+}
+
+/**
+ * 格式化时长（秒）
+ */
+export function formatDurationFromSeconds(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return '0分钟';
+
+  const totalSeconds = Math.floor(seconds);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours}小时`);
+  }
+
+  if (minutes > 0) {
+    parts.push(`${minutes}分钟`);
+  }
+
+  if (remainingSeconds > 0) {
+    parts.push(`${remainingSeconds}秒`);
+  }
+
+  if (parts.length === 0) {
+    return '0分钟';
+  }
+
+  return parts.join('');
 }
 
 /**
@@ -137,7 +174,9 @@ export function validateUserId(userId: unknown): userId is number {
  * 验证任务时长
  */
 export function validateTaskDuration(duration: unknown): duration is number {
-  return typeof duration === 'number' && duration >= 5 && duration <= 480;
+  return typeof duration === 'number'
+    && duration >= getMinTaskDurationMinutes()
+    && duration <= MAX_TASK_DURATION_MINUTES;
 }
 
 /**
@@ -283,27 +322,27 @@ export function getTodayBounds(date: Date = new Date()): DateBounds {
  */
 export function parseTaskCommand(input: string | null | undefined): ParsedTaskCommand {
   if (!input || typeof input !== 'string') {
-    return { description: '专注任务', duration: 25 };
+    return { description: '专注任务', duration: DEFAULT_TASK_DURATION_MINUTES };
   }
 
   const trimmed = input.trim();
   if (!trimmed) {
-    return { description: '专注任务', duration: 25 };
+    return { description: '专注任务', duration: DEFAULT_TASK_DURATION_MINUTES };
   }
 
   const parts = trimmed.split(' ');
   const lastPart = parts.at(-1);
   if (!lastPart) {
-    return { description: '专注任务', duration: 25 };
+    return { description: '专注任务', duration: DEFAULT_TASK_DURATION_MINUTES };
   }
   const duration = Number.parseInt(lastPart, 10);
 
-  if (!Number.isNaN(duration) && duration >= 5 && duration <= 480) {
+  if (validateTaskDuration(duration)) {
     const description = parts.slice(0, -1).join(' ') || '专注任务';
     return { description, duration };
   }
 
-  return { description: trimmed, duration: 25 };
+  return { description: trimmed, duration: DEFAULT_TASK_DURATION_MINUTES };
 }
 
 /**

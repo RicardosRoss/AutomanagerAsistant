@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig, DeepPartial } from '../src/types/config.js';
+import { DEFAULT_TASK_DURATION_MINUTES } from '../src/types/taskDefaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,7 +118,7 @@ const baseConfig: AppConfig = {
     }
   },
   tasks: {
-    defaultDuration: 25,
+    defaultDuration: DEFAULT_TASK_DURATION_MINUTES,
     progressIntervals: [0.25, 0.5, 0.75],
     maxDuration: 120,
     minDuration: 5
