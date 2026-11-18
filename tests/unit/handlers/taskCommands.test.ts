@@ -1,10 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import config from '../../../config/index.js';
 import TaskCommandHandlers from '../../../src/handlers/taskCommands.js';
+import User from '../../../src/models/User.js';
 import {
   DEFAULT_TASK_DURATION_MINUTES,
   getMinTaskDurationMinutes
 } from '../../../src/types/taskDefaults.js';
+
+async function deliverRewardNotice(handlers: TaskCommandHandlers, taskId: string) {
+  const result = await handlers.ctdpService!.completeTrackedTask(123456789, taskId);
+  await handlers.sendRewardNotice(123456789, taskId, result.cultivationReward!, result.task);
+}
 
 describe('TaskCommandHandlers', () => {
   const bot = {
@@ -32,7 +38,7 @@ describe('TaskCommandHandlers', () => {
     };
     const ctdpService = {
       createReservation: vi.fn().mockRejectedValue(new Error('已有活跃预约')),
-      cancelReservation: vi.fn().mockResolvedValue({ cancelled: true })
+      rollbackReservationCreation: vi.fn().mockResolvedValue({ cancelled: true })
     };
 
     const handlers = new TaskCommandHandlers({
@@ -57,7 +63,7 @@ describe('TaskCommandHandlers', () => {
     };
     const ctdpService = {
       createReservation: vi.fn().mockResolvedValue({}),
-      cancelReservation: vi.fn().mockResolvedValue({ cancelled: true })
+      rollbackReservationCreation: vi.fn().mockResolvedValue({ cancelled: true })
     };
 
     const handlers = new TaskCommandHandlers({
@@ -72,7 +78,7 @@ describe('TaskCommandHandlers', () => {
 
     expect(ctdpService.createReservation).toHaveBeenCalledTimes(1);
     expect(queueService.scheduleReservation).toHaveBeenCalledTimes(1);
-    expect(ctdpService.cancelReservation).toHaveBeenCalledTimes(1);
+    expect(ctdpService.rollbackReservationCreation).toHaveBeenCalledTimes(1);
     expect(onError).toHaveBeenCalledWith(123456789, '队列不可用');
   });
 
@@ -85,7 +91,7 @@ describe('TaskCommandHandlers', () => {
     };
     const ctdpService = {
       createReservation: vi.fn().mockResolvedValue({}),
-      cancelReservation: vi.fn().mockResolvedValue({ cancelled: true })
+      rollbackReservationCreation: vi.fn().mockResolvedValue({ cancelled: true })
     };
 
     const handlers = new TaskCommandHandlers({
@@ -100,14 +106,55 @@ describe('TaskCommandHandlers', () => {
 
     expect(bot.sendMessage).toHaveBeenCalledWith(
       123456789,
-      expect.stringContaining('🕐 预约时间：1小时30分钟后'),
+      expect.stringContaining('🕐 启动期限：1小时30分钟内'),
       expect.any(Object)
     );
     expect(bot.sendMessage).toHaveBeenCalledWith(
       123456789,
-      expect.stringContaining('1小时30分钟的延迟将降低60%的启动阻力'),
+      expect.stringContaining('不必现在马上开始，但要在期限内'),
       expect.any(Object)
     );
+  });
+
+  test('/reserve 通知失败时仍视为已提交，避免草稿重建预约', async () => {
+    const queueService = {
+      scheduleReservation: vi.fn().mockResolvedValue('job-id'),
+      cancelReservation: vi.fn().mockResolvedValue(true)
+    };
+    const ctdpService = {
+      createReservation: vi.fn().mockResolvedValue({}),
+      rollbackReservationCreation: vi.fn().mockResolvedValue({ cancelled: true })
+    };
+    bot.sendMessage.mockRejectedValueOnce(new Error('Telegram 暂时不可用'));
+
+    const handlers = new TaskCommandHandlers({
+      bot: bot as never,
+      taskService: taskService as never,
+      queueService: queueService as never,
+      ctdpService: ctdpService as never,
+      onError
+    });
+
+    await expect(handlers.handleReserveCommand(123456789, '继续阅读 45')).resolves.toBe(true);
+    expect(ctdpService.rollbackReservationCreation).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  test('/task 通知失败时仍视为已提交，避免重复创建运行任务', async () => {
+    bot.sendMessage.mockRejectedValueOnce(new Error('Telegram 暂时不可用'));
+    const handlers = new TaskCommandHandlers({
+      bot: bot as never,
+      taskService: {
+        createTask: vi.fn().mockResolvedValue({
+          task: { taskId: 'task-notify-failure' }
+        })
+      } as never,
+      queueService: { scheduleReservation: vi.fn(), cancelReservation: vi.fn() } as never,
+      onError
+    });
+
+    await expect(handlers.handleTaskCommand(123456789, '继续阅读 45')).resolves.toBe(true);
+    expect(onError).not.toHaveBeenCalled();
   });
 
   test('parseTaskInput 在无显式时长时应使用统一默认时长', () => {
@@ -152,10 +199,7 @@ describe('TaskCommandHandlers', () => {
     });
 
     expect(getMinTaskDurationMinutes()).toBe(5);
-    expect(handlers.parseTaskInput('测试奇遇 1')).toEqual({
-      description: '测试奇遇 1',
-      duration: DEFAULT_TASK_DURATION_MINUTES
-    });
+    expect(() => handlers.parseTaskInput('测试奇遇 1')).toThrow('任务时长必须为5到480分钟的整数');
   });
 
   test('sendTaskPrompt 应显示统一默认时长', async () => {
@@ -175,7 +219,7 @@ describe('TaskCommandHandlers', () => {
     );
   });
 
-  test('完成任务消息应显示道行与灵石变化，不再显示额外灵力文案', async () => {
+  test('附加奖励通知应显示道行与灵石变化，不再显示额外灵力文案', async () => {
     const queueService = {
       scheduleReservation: vi.fn(),
       cancelReservation: vi.fn()
@@ -213,7 +257,7 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-1');
+    await deliverRewardNotice(handlers, 'task-1');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('⚡ 获得修为：88 点');
@@ -224,7 +268,7 @@ describe('TaskCommandHandlers', () => {
     expect(sentMessage).not.toContain('x1.5');
   });
 
-  test('完成任务消息应追加奇遇战短战报', async () => {
+  test('附加奖励通知应追加奇遇战短战报', async () => {
     const handlers = new TaskCommandHandlers({
       bot: bot as never,
       taskService: taskService as never,
@@ -265,7 +309,7 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-1');
+    await deliverRewardNotice(handlers, 'task-1');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('⚔️ 斗法结果：大胜');
@@ -273,7 +317,7 @@ describe('TaskCommandHandlers', () => {
     expect(sentMessage).toContain('📝 你先以身法游走拉开空档，随后趁势压制对手。');
   });
 
-  test('完成任务消息在疗伤生效时应追加伤势恢复摘要，但不显示修为扣减', async () => {
+  test('附加奖励通知在疗伤生效时应追加伤势恢复摘要，但不显示修为扣减', async () => {
     const handlers = new TaskCommandHandlers({
       bot: bot as never,
       taskService: taskService as never,
@@ -314,14 +358,14 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-2');
+    await deliverRewardNotice(handlers, 'task-2');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('🩹 伤势恢复：中伤 -> 无伤');
     expect(sentMessage).not.toContain('疗伤耗去修为');
   });
 
-  test('完成任务消息在开发详细战报开启时应追加回合日志', async () => {
+  test('附加奖励通知在开发详细战报开启时应追加回合日志', async () => {
     const handlers = new TaskCommandHandlers({
       bot: bot as never,
       taskService: taskService as never,
@@ -366,7 +410,7 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-1');
+    await deliverRewardNotice(handlers, 'task-1');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('🧪 详细战报：');
@@ -415,7 +459,7 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-short-1');
+    await deliverRewardNotice(handlers, 'task-short-1');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('⚡ 获得修为：0 点');
@@ -457,7 +501,7 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-short-2');
+    await deliverRewardNotice(handlers, 'task-short-2');
 
     const sentMessage = bot.sendMessage.mock.calls[0]?.[1] as string;
     expect(sentMessage).toContain('⚡ 获得修为：0 点');
@@ -465,7 +509,7 @@ describe('TaskCommandHandlers', () => {
     expect(sentMessage).toContain('未触发主修为与奇遇收益');
   });
 
-  test('完成任务消息在守宝奇遇时应追加风险文案和离开/争抢按钮', async () => {
+  test('附加奖励通知在守宝奇遇时应追加风险文案和离开/争抢按钮', async () => {
     const cultivationService = {
       abandonEncounterOffer: vi.fn(),
       contestEncounterOffer: vi.fn()
@@ -511,7 +555,10 @@ describe('TaskCommandHandlers', () => {
       onError
     });
 
-    await handlers.handleCompleteTaskCallback(123456789, 'complete_task_task-guardian');
+    await User.create({ userId: 123456789, cultivation: { canonical: { state: { combatFlags: {
+      pendingEncounterOffer: { offerId: 'offer_1' }
+    } } } } });
+    await deliverRewardNotice(handlers, 'task-guardian');
 
     expect(bot.sendMessage).toHaveBeenCalledWith(
       123456789,

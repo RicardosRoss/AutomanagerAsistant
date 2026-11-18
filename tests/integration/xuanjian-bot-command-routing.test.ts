@@ -58,15 +58,19 @@ async function bootstrapBot(fakeBot: FakeTelegramBot) {
   (bot as unknown as { bot: FakeTelegramBot }).bot = fakeBot;
   (bot as unknown as { initializeHandlers: (instance: FakeTelegramBot) => void }).initializeHandlers(fakeBot);
   bot.registerEventHandlers();
+  bot.botUsername = 'automanagemyselfbot';
   return bot;
 }
 
-async function seedCanonicalUser(userId: number, options: {
-  currentPower: number;
-  realmId?: 'realm.taixi' | 'realm.lianqi';
-  immortalStones: number;
-  cultivationAttainment?: number;
-}): Promise<void> {
+async function seedCanonicalUser(
+  userId: number,
+  options: {
+    currentPower: number;
+    realmId?: 'realm.taixi' | 'realm.lianqi';
+    immortalStones: number;
+    cultivationAttainment?: number;
+  }
+): Promise<void> {
   const user = await User.create({
     userId,
     cultivation: {
@@ -95,7 +99,7 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     vi.restoreAllMocks();
   });
 
-  test('/realm update 应通过 onText 接线展示 canonical 持久化状态', async () => {
+  test('/realm update 应通过统一分发展示 canonical 持久化状态', async () => {
     const userId = 604001;
     await bootstrapBot(fakeBot);
     await seedCanonicalUser(userId, {
@@ -142,7 +146,43 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     expect(persistedUser?.cultivation.immortalStones).toBe(140);
   });
 
-  test('/breakthrough update 应通过 onText 接线完成破境并发出结果文案', async () => {
+  test('a duplicated Telegram update must not spend or award stones twice', async () => {
+    const userId = 604012;
+    await bootstrapBot(fakeBot);
+    await seedCanonicalUser(userId, { currentPower: 1, immortalStones: 100 });
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    await fakeBot.emitMessage('/divination 10', userId, 9012);
+    await vi.waitFor(() => expect(fakeBot.sendMessage).toHaveBeenCalledTimes(2));
+    await fakeBot.emitMessage('/divination 10', userId, 9012);
+    await vi.waitFor(() => expect(fakeBot.deleteMessage).toHaveBeenCalledTimes(1));
+    expect((await User.findOne({ userId }))?.cultivation.immortalStones).toBe(140);
+    expect(fakeBot.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  test('a command substring in normal text must not execute a cultivation operation', async () => {
+    const userId = 604013;
+    await bootstrapBot(fakeBot);
+    await seedCanonicalUser(userId, { currentPower: 1, immortalStones: 100 });
+    await fakeBot.emitMessage('笔记中提到了 /divination 10', userId, 9013);
+    expect(fakeBot.deleteMessage).not.toHaveBeenCalled();
+    expect((await User.findOne({ userId }))?.cultivation.immortalStones).toBe(100);
+    expect(fakeBot.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test('cultivation dispatch accepts case-insensitive own suffix and ignores another bot or longer name', async () => {
+    const userId = 604014;
+    await bootstrapBot(fakeBot);
+    await seedCanonicalUser(userId, { currentPower: 1, immortalStones: 100 });
+    await fakeBot.emitMessage('/REALM@AutomanageMyselfBot', userId, 9014);
+    expect(fakeBot.sendMessage.mock.calls[0]?.[1]).toContain('当前境界');
+    await fakeBot.emitMessage('/divination@OtherBot 10', userId, 9015);
+    expect(fakeBot.sendMessage).toHaveBeenCalledTimes(1);
+    await fakeBot.emitMessage('/realm_extra', userId, 9016);
+    expect(fakeBot.sendMessage.mock.calls[1]?.[1]).toContain('未知命令');
+    expect((await User.findOne({ userId }))?.cultivation.immortalStones).toBe(100);
+  });
+
+  test('/breakthrough update 应通过统一分发完成破境并发出结果文案', async () => {
     const userId = 604003;
     await bootstrapBot(fakeBot);
     await seedCanonicalUser(userId, {
@@ -168,7 +208,7 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     expect(persistedUser?.cultivation.canonical?.state.currentPower).toBe(120);
   });
 
-  test('/equip_art update 应通过 onText 接线持久化主战法门', async () => {
+  test('/equip_art update 应通过统一分发持久化主战法门', async () => {
     const userId = 604004;
     await bootstrapBot(fakeBot);
     await seedCanonicalUser(userId, {
@@ -192,14 +232,16 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     await vi.waitFor(async () => {
       const persistedUser = await User.findOne({ userId });
       expect(fakeBot.sendMessage).toHaveBeenCalledTimes(1);
-      expect(persistedUser?.cultivation.canonical?.state.battleLoadout.equippedBattleArtIds).toEqual(['art.cloud_step']);
+      expect(persistedUser?.cultivation.canonical?.state.battleLoadout.equippedBattleArtIds).toEqual([
+        'art.cloud_step'
+      ]);
     });
 
     const message = fakeBot.sendMessage.mock.calls[0]?.[1] as string;
     expect(message).toContain('主战法门已更新');
   });
 
-  test('/dev_grant_art update 应通过 onText 接线授予法门', async () => {
+  test('/dev_grant_art update 应通过统一分发授予法门', async () => {
     vi.stubEnv('NODE_ENV', 'development');
 
     const userId = 604005;
@@ -221,7 +263,7 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     expect(message).toContain('金光术');
   });
 
-  test('/dev_grant_power update 应通过 onText 接线授予神通', async () => {
+  test('/dev_grant_power update 应通过统一分发授予神通', async () => {
     vi.stubEnv('NODE_ENV', 'development');
 
     const userId = 604007;
@@ -256,7 +298,7 @@ describe('玄鉴 Telegram bot 命令接线集成测试', () => {
     expect(message).toContain('昭澈心');
   });
 
-  test('/dev_combat_detail on update 应通过 onText 接线开启详细战报', async () => {
+  test('/dev_combat_detail on update 应通过统一分发开启详细战报', async () => {
     vi.stubEnv('NODE_ENV', 'development');
 
     const userId = 604006;

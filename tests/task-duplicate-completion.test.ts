@@ -65,7 +65,7 @@ describe('任务重复完成防护测试', () => {
     const failedResult = [result1, result2].find((entry) => entry.status === 'rejected');
     expect(failedResult?.status).toBe('rejected');
     if (failedResult?.status === 'rejected') {
-      expect(failedResult.reason.message).toMatch(/任务不存在、已完成或未在运行状态/);
+      expect(failedResult.reason.message).toMatch(/任务不存在、已完成或未在运行状态|任务结算正在处理中/);
     }
 
     const userAfter = await User.findOne({ userId: testUserId });

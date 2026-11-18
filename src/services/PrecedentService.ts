@@ -23,15 +23,17 @@ class PrecedentService {
    * Report a violation and check if a user decision is needed.
    *
    * - If a PrecedentRule with decision='allow_forever' exists for this
-   *   userId + behaviorKey + chainType, the behavior is auto-allowed.
+   *   userId + behaviorKey + chainType + chainId, the behavior is auto-allowed.
    * - Otherwise the user must choose between break_chain and allow_forever.
    */
   async reportViolation(input: ViolationInput): Promise<ViolationResult> {
+    this.requireChain(input.chainId);
     try {
       const existing = await PrecedentRule.findOne({
         userId: input.userId,
         'scope.behaviorKey': input.behaviorKey,
-        'scope.chainType': input.chainType
+        'scope.chainType': input.chainType,
+        'scope.chainId': input.chainId
       });
 
       if (existing && existing.decision === 'allow_forever') {
@@ -74,20 +76,24 @@ class PrecedentService {
     userId: number;
     chainType: 'main' | 'aux';
     behaviorKey: string;
+    chainId: string;
   }): Promise<PrecedentRuleDocument> {
+    this.requireChain(input.chainId);
     try {
       const rule = await PrecedentRule.findOneAndUpdate(
         {
           userId: input.userId,
           'scope.behaviorKey': input.behaviorKey,
-          'scope.chainType': input.chainType
+          'scope.chainType': input.chainType,
+          'scope.chainId': input.chainId
         },
         {
           $setOnInsert: {
             userId: input.userId,
             scope: {
               behaviorKey: input.behaviorKey,
-              chainType: input.chainType
+              chainType: input.chainType,
+              chainId: input.chainId
             },
             decision: 'allow_forever',
             createdAt: new Date()
@@ -114,18 +120,21 @@ class PrecedentService {
   }
 
   /**
-   * Check whether a behavior is already allowed for a given user + chainType.
+   * Check whether a behavior is already allowed in this chain's lifecycle.
    */
   async isBehaviorAllowed(
     userId: number,
     behaviorKey: string,
-    chainType: 'main' | 'aux'
+    chainType: 'main' | 'aux',
+    chainId: string
   ): Promise<boolean> {
+    this.requireChain(chainId);
     try {
       const count = await PrecedentRule.countDocuments({
         userId,
         'scope.behaviorKey': behaviorKey,
         'scope.chainType': chainType,
+        'scope.chainId': chainId,
         decision: 'allow_forever'
       });
 
@@ -138,6 +147,12 @@ class PrecedentService {
         chainType
       });
       throw new Error(`PrecedentService isBehaviorAllowed 失败: ${message}`);
+    }
+  }
+
+  private requireChain(chainId: string): void {
+    if (typeof chainId !== 'string' || !chainId.trim()) {
+      throw new Error('判例必须绑定当前任务链，请使用 /violation 或 /reserve_status 处理');
     }
   }
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import config from '../../../config/index.js';
 import AuxChain from '../../../src/models/AuxChain.js';
+import TaskChain from '../../../src/models/TaskChain.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 import type {
   CompleteTaskResult,
@@ -13,6 +14,9 @@ import type {
 function createMockTaskService() {
   return {
     createTask: vi.fn(),
+    rollbackTaskCreation: vi.fn(),
+    recoverAbandonedCreation: vi.fn(),
+    isTaskCreationActive: vi.fn().mockReturnValue(false),
     completeTask: vi.fn(),
     getUserStatus: vi.fn(),
     scheduleProgressReminders: vi.fn(),
@@ -54,11 +58,13 @@ describe('CTDPService', () => {
   });
 
   // Helper: a minimal CreateTaskResult
-  const fakeCreateResult = (taskOverrides: Record<string, unknown> = {}): CreateTaskResult => ({
-    chain: {} as any,
-    task: fakeTask(taskOverrides),
-    user: {} as any
-  });
+  const fakeCreateResult = async (taskOverrides: Record<string, unknown> = {}): Promise<CreateTaskResult> => {
+    const task = fakeTask({ creationState: 'ready', ...taskOverrides });
+    const chain = await TaskChain.findOneAndUpdate({ userId: testUserId, status: 'active' }, {
+      $setOnInsert: { chainId: 'unit-stub-chain' }, $push: { tasks: task }
+    }, { upsert: true, new: true });
+    return { chain, task, user: {} as any };
+  };
 
   // Helper: a minimal CompleteTaskResult (success)
   const fakeCompleteResult = (taskOverrides: Record<string, unknown> = {}): CompleteTaskResult => ({
@@ -122,7 +128,10 @@ describe('CTDPService', () => {
         '专注任务',
         25,
         false,
-        null
+        null,
+        undefined,
+        undefined,
+        result.mainChain.chainId
       );
 
       // MainChain should exist with one running node
@@ -176,7 +185,10 @@ describe('CTDPService', () => {
         '预约任务',
         15,
         true,
-        'res_123'
+        'res_123',
+        undefined,
+        undefined,
+        expect.any(String)
       );
     });
   });
@@ -225,7 +237,10 @@ describe('CTDPService', () => {
         '预约任务',
         DEFAULT_TASK_DURATION_MINUTES,
         true,
-        reservationId
+        reservationId,
+        `reservation:${reservationId}`,
+        expect.any(String),
+        expect.any(String)
       );
     });
 

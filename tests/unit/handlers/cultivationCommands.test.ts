@@ -669,59 +669,37 @@ describe('CultivationCommandHandlers', () => {
     expect(sendMessage.mock.calls[0]?.[1]).toContain('当前境界尚未开启神通槽');
   });
 
-  test('production 环境不注册 dev encounter 命令', () => {
+  test('production rejects dev commands before reaching a service', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-
-    const localOnText = vi.fn();
-    const handler = new CultivationCommandHandlers({
-      sendMessage,
-      deleteMessage,
-      onText: localOnText
-    } as never);
-
-    handler.registerCommands();
-
-    const patterns = localOnText.mock.calls.map((call) => String(call[0]));
-    expect(patterns.some((pattern) => pattern.includes('dev_encounter_set'))).toBe(false);
-    expect(patterns.some((pattern) => pattern.includes('dev_encounter_status'))).toBe(false);
-    expect(patterns.some((pattern) => pattern.includes('dev_encounter_clear'))).toBe(false);
-    expect(patterns.some((pattern) => pattern.includes('dev_grant_art'))).toBe(false);
-    expect(patterns.some((pattern) => pattern.includes('dev_grant_power'))).toBe(false);
-    expect(patterns.some((pattern) => pattern.includes('dev_combat_detail'))).toBe(false);
+    const handler = new CultivationCommandHandlers({ sendMessage, deleteMessage } as never);
+    const service = vi.spyOn(handler, 'handleDevGrantArtCommand');
+    expect(await handler.dispatchCommand({ chat: { id: 5515965469 } } as never, 'dev_grant_art', 'art.id')).toBe(true);
+    expect(service).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(5515965469, expect.stringContaining('开发环境'));
   });
 
-  test('registerCommands 应注册 loadout 与 equip 命令', () => {
-    const localOnText = vi.fn();
-    const handler = new CultivationCommandHandlers({
-      sendMessage,
-      deleteMessage,
-      onText: localOnText
-    } as never);
-
-    handler.registerCommands();
-
-    const patterns = localOnText.mock.calls.map((call) => String(call[0]));
-    expect(patterns.some((pattern) => pattern.includes('loadout'))).toBe(true);
-    expect(patterns.some((pattern) => pattern.includes('equip_art'))).toBe(true);
-    expect(patterns.some((pattern) => pattern.includes('equip_support'))).toBe(true);
-    expect(patterns.some((pattern) => pattern.includes('equip_power'))).toBe(true);
+  test('dispatches loadout and equip commands with the full argument', async () => {
+    const handler = new CultivationCommandHandlers({ sendMessage, deleteMessage } as never);
+    const loadout = vi.spyOn(handler, 'handleLoadoutCommand').mockResolvedValue(undefined);
+    const equip = vi.spyOn(handler, 'handleEquipArtCommand').mockResolvedValue(undefined);
+    const msg = { chat: { id: 5515965469 } } as never;
+    expect(await handler.dispatchCommand(msg, 'loadout', '')).toBe(true);
+    expect(await handler.dispatchCommand(msg, 'equip_art', 'art.one,art.two')).toBe(true);
+    expect(loadout).toHaveBeenCalledWith(msg);
+    expect(equip.mock.calls[0]?.[1]?.[1]).toBe('art.one,art.two');
+    expect(await handler.dispatchCommand(msg, 'realm_extra', '')).toBe(false);
+    expect(await handler.dispatchCommand(msg, 'toString', '')).toBe(false);
   });
 
-  test('development 环境应注册 dev_grant_art 与 dev_grant_power 命令', () => {
+  test('development dispatches dev commands with parsed arguments', async () => {
     vi.stubEnv('NODE_ENV', 'development');
-
-    const localOnText = vi.fn();
-    const handler = new CultivationCommandHandlers({
-      sendMessage,
-      deleteMessage,
-      onText: localOnText
-    } as never);
-
-    handler.registerCommands();
-
-    const patterns = localOnText.mock.calls.map((call) => String(call[0]));
-    expect(patterns.some((pattern) => pattern.includes('dev_grant_art'))).toBe(true);
-    expect(patterns.some((pattern) => pattern.includes('dev_grant_power'))).toBe(true);
-    expect(patterns.some((pattern) => pattern.includes('dev_combat_detail'))).toBe(true);
+    const handler = new CultivationCommandHandlers({ sendMessage, deleteMessage } as never);
+    const grant = vi.spyOn(handler, 'handleDevGrantArtCommand').mockResolvedValue(undefined);
+    const script = vi.spyOn(handler, 'handleDevEncounterSetCommand').mockResolvedValue(undefined);
+    const msg = { chat: { id: 5515965469 } } as never;
+    expect(await handler.dispatchCommand(msg, 'dev_grant_art', 'art.one')).toBe(true);
+    expect(await handler.dispatchCommand(msg, 'dev_encounter_set', 'stones 3')).toBe(true);
+    expect(grant.mock.calls[0]?.[1]?.[1]).toBe('art.one');
+    expect(script.mock.calls[0]?.[1]?.slice(1)).toEqual(['stones', '3']);
   });
 });

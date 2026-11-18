@@ -1,24 +1,9 @@
-import type {
-  BattleLoadoutState,
-  CombatHistorySummaryEntry,
-} from './cultivationV2.js';
+import type { BattleLoadoutState, CombatHistorySummaryEntry } from './cultivationV2.js';
 import type { PendingEncounterOfferState } from './cultivationCombat.js';
 
-export type RealmId =
-  | 'realm.taixi'
-  | 'realm.lianqi'
-  | 'realm.zhuji'
-  | 'realm.zifu'
-  | 'realm.jindan'
-  | 'realm.yuanying';
+export type RealmId = 'realm.taixi' | 'realm.lianqi' | 'realm.zhuji' | 'realm.zifu' | 'realm.jindan' | 'realm.yuanying';
 
-export type LineageId =
-  | 'universal'
-  | 'mingyang'
-  | 'zhengmu'
-  | 'pinshui'
-  | 'lihuo'
-  | 'duijin';
+export type LineageId = 'universal' | 'mingyang' | 'zhengmu' | 'pinshui' | 'lihuo' | 'duijin';
 
 export type SpecializedLineageId = Exclude<LineageId, 'universal'>;
 
@@ -29,10 +14,7 @@ export type BreakthroughTransitionId =
   | 'zifu_divine_power'
   | 'zifu_to_jindan';
 
-export type BreakthroughAttemptKind =
-  | 'realm_zhuji_to_zifu'
-  | 'zifu_divine_power'
-  | 'realm_zifu_to_jindan';
+export type BreakthroughAttemptKind = 'realm_zhuji_to_zifu' | 'zifu_divine_power' | 'realm_zifu_to_jindan';
 
 export interface FoundationDefinition {
   id: string;
@@ -137,13 +119,7 @@ export interface DevEncounterScript {
 export interface CombatFlagsState {
   devEncounterScript?: DevEncounterScript;
   pendingEncounterOffer?: PendingEncounterOfferState;
-  [key: string]:
-    | boolean
-    | string
-    | number
-    | DevEncounterScript
-    | PendingEncounterOfferState
-    | undefined;
+  [key: string]: boolean | string | number | DevEncounterScript | PendingEncounterOfferState | undefined;
 }
 
 export interface BaseDefinition {

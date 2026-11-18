@@ -3,6 +3,20 @@ import { MainChain } from '../../../src/models/index.js';
 
 describe('MainChain Model', () => {
   describe('schema validation', () => {
+    it('database uniqueness allows broken history but only one active main chain per user', async () => {
+      const userId = 119991;
+      await MainChain.create({ userId, chainId: 'unique-active-main-first',
+        sacredMarker: { type: 'seat', label: '确认' }, status: 'active' });
+      await expect(MainChain.create({ userId, chainId: 'unique-active-main-second',
+        sacredMarker: { type: 'seat', label: '确认' }, status: 'active' }))
+        .rejects.toMatchObject({ code: 11000, keyPattern: { userId: 1 } });
+      await MainChain.updateOne({ chainId: 'unique-active-main-first' }, { $set: { status: 'broken' } });
+      await MainChain.create({ userId, chainId: 'unique-active-main-second',
+        sacredMarker: { type: 'seat', label: '确认' }, status: 'active' });
+      expect(await MainChain.countDocuments({ userId, status: 'active' })).toBe(1);
+      expect(await MainChain.countDocuments({ userId, status: 'broken' })).toBe(1);
+    });
+
     it('should create a MainChain with required fields', async () => {
       const chain = new MainChain({
         userId: 111111,

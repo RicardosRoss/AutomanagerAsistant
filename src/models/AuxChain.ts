@@ -13,13 +13,17 @@ const pendingReservationSchema = new Schema<IPendingReservation>(
     duration: { type: Number },
     createdAt: { type: Date },
     deadlineAt: { type: Date },
-    status: { type: String, enum: ['pending', 'fulfilled', 'expired', 'cancelled'] }
+    startToken: String,
+    startClaimedAt: Date,
+    startLeaseUntil: Date,
+    status: { type: String, enum: ['pending', 'starting', 'fulfilled', 'expired', 'cancelled'] }
   },
   { _id: false }
 );
 
 const reservationHistorySchema = new Schema<IReservationHistoryEntry>(
   {
+    resolutionId: String,
     reservationId: { type: String },
     signal: { type: String },
     duration: { type: Number },
@@ -37,6 +41,16 @@ const auxChainSchema = new Schema<IAuxChain, IAuxChainModel>(
     userId: { type: Number, required: true },
     chainId: { type: String, unique: true, required: true },
     pendingReservation: pendingReservationSchema,
+    pendingDecision: {
+      type: new Schema({
+        behaviorKey: String, decisionToken: String, delayMinutes: Number,
+        processingToken: String, processingUntil: Date,
+        chosenDecision: String, resolutionAt: Date, resolutionId: String, notifiedAt: Date,
+        notificationToken: String, notifyingUntil: Date, nextNotificationAt: Date
+      }, { _id: false }),
+      default: undefined
+    },
+    completedReservations: { type: Number, default: 0 },
     reservationHistory: [reservationHistorySchema],
     status: { type: String, enum: ['active', 'inactive'], default: 'active' }
   },

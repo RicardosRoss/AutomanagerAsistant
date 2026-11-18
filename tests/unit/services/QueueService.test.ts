@@ -45,4 +45,38 @@ describe('QueueService', () => {
       expect.any(Object)
     );
   });
+
+  test('延期重排失败时恢复原预约队列任务', async () => {
+    const originalJob = {
+      data: {
+        userId: 123456789,
+        reservationId: 'res_restore',
+        taskDescription: '恢复队列',
+        duration: 30,
+        scheduledFor: new Date(),
+        principle: 'LINEAR_DELAY' as const
+      },
+      timestamp: Date.now(),
+      opts: { delay: 60_000 },
+      remove: vi.fn().mockResolvedValue(undefined)
+    };
+    const add = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Redis 暂时不可用'))
+      .mockResolvedValueOnce({ id: 'res_restore' });
+    queueService.isInitialized = true;
+    queueService.reservationQueue = {
+      getJob: vi.fn().mockResolvedValue(originalJob),
+      add
+    } as never;
+
+    await expect(queueService.rescheduleReservation('res_restore', 300_000)).rejects.toThrow('Redis 暂时不可用');
+    expect(originalJob.remove).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(add.mock.calls[1]).toEqual([
+      'reservation',
+      originalJob.data,
+      expect.objectContaining({ jobId: 'res_restore' })
+    ]);
+  });
 });

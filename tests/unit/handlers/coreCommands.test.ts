@@ -55,7 +55,9 @@ describe('CoreCommandHandlers', () => {
     });
     expect(sendMessage).toHaveBeenCalledTimes(1);
     const welcomeMessage = sendMessage.mock.calls[0]?.[1] as string;
-    expect(welcomeMessage).toContain('胎息 → 练气 → 筑基 → 紫府 → 金丹 → 元婴');
+    expect(welcomeMessage).toContain('现在启动困难？');
+    expect(welcomeMessage).toContain('15分钟内开始');
+    expect(welcomeMessage).toContain('确认前只是准备');
   });
 
   test('/stats reuses todayStats from user status instead of issuing a second daily stats query', async () => {
@@ -163,7 +165,7 @@ describe('CoreCommandHandlers', () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       5515965469,
-      expect.stringContaining('⏰ <b>1小时30分钟预约</b> - 降低60%的启动阻力'),
+      expect.stringContaining('⏰ <b>1小时30分钟内启动</b> - 先预约，再兑现'),
       expect.objectContaining({ parse_mode: 'HTML' })
     );
   });
@@ -185,17 +187,17 @@ describe('CoreCommandHandlers', () => {
 
     expect(sendMessage).toHaveBeenCalledWith(
       5515965469,
-      expect.any(String),
+      expect.stringContaining('1小时30分钟内启动'),
       expect.objectContaining({
         reply_markup: {
           inline_keyboard: [[
             {
-              text: `🚀 立即创建${DEFAULT_TASK_DURATION_MINUTES}分钟任务`,
-              callback_data: `create_task:学习系统设计:${DEFAULT_TASK_DURATION_MINUTES}`
+              text: '⏰ 准备预约',
+              callback_data: 'quick_reserve'
             },
             {
-              text: '⏰ 预约1小时30分钟后开始',
-              callback_data: `reserve_task:学习系统设计:${DEFAULT_TASK_DURATION_MINUTES}`
+              text: '🚀 准备立即开始',
+              callback_data: 'quick_task'
             }
           ]]
         }

@@ -114,30 +114,224 @@ export function createDefaultBattleLoadoutState(): BattleLoadoutState {
 }
 
 const REALM_SUB_STAGES: RealmSubStageDefinition[] = [
-  { id: 'realmSubStage.taixi.xuanjing', parentRealmId: 'realm.taixi', order: 1, label: '玄景', displayName: '胎息·玄景', minPowerInclusive: 0, maxPowerExclusive: 20 },
-  { id: 'realmSubStage.taixi.chengming', parentRealmId: 'realm.taixi', order: 2, label: '承明', displayName: '胎息·承明', minPowerInclusive: 20, maxPowerExclusive: 40 },
-  { id: 'realmSubStage.taixi.zhouxing', parentRealmId: 'realm.taixi', order: 3, label: '周行', displayName: '胎息·周行', minPowerInclusive: 40, maxPowerExclusive: 60 },
-  { id: 'realmSubStage.taixi.qingyuan', parentRealmId: 'realm.taixi', order: 4, label: '青元', displayName: '胎息·青元', minPowerInclusive: 60, maxPowerExclusive: 80 },
-  { id: 'realmSubStage.taixi.yujing', parentRealmId: 'realm.taixi', order: 5, label: '玉京', displayName: '胎息·玉京', minPowerInclusive: 80, maxPowerExclusive: 100 },
-  { id: 'realmSubStage.taixi.lingchu', parentRealmId: 'realm.taixi', order: 6, label: '灵初', displayName: '胎息·灵初', minPowerInclusive: 100, maxPowerExclusive: 120 },
-  { id: 'realmSubStage.lianqi.1', parentRealmId: 'realm.lianqi', order: 1, label: '一层', displayName: '练气·一层', minPowerInclusive: 120, maxPowerExclusive: 153 },
-  { id: 'realmSubStage.lianqi.2', parentRealmId: 'realm.lianqi', order: 2, label: '二层', displayName: '练气·二层', minPowerInclusive: 153, maxPowerExclusive: 187 },
-  { id: 'realmSubStage.lianqi.3', parentRealmId: 'realm.lianqi', order: 3, label: '三层', displayName: '练气·三层', minPowerInclusive: 187, maxPowerExclusive: 220 },
-  { id: 'realmSubStage.lianqi.4', parentRealmId: 'realm.lianqi', order: 4, label: '四层', displayName: '练气·四层', minPowerInclusive: 220, maxPowerExclusive: 253 },
-  { id: 'realmSubStage.lianqi.5', parentRealmId: 'realm.lianqi', order: 5, label: '五层', displayName: '练气·五层', minPowerInclusive: 253, maxPowerExclusive: 287 },
-  { id: 'realmSubStage.lianqi.6', parentRealmId: 'realm.lianqi', order: 6, label: '六层', displayName: '练气·六层', minPowerInclusive: 287, maxPowerExclusive: 320 },
-  { id: 'realmSubStage.lianqi.7', parentRealmId: 'realm.lianqi', order: 7, label: '七层', displayName: '练气·七层', minPowerInclusive: 320, maxPowerExclusive: 353 },
-  { id: 'realmSubStage.lianqi.8', parentRealmId: 'realm.lianqi', order: 8, label: '八层', displayName: '练气·八层', minPowerInclusive: 353, maxPowerExclusive: 387 },
-  { id: 'realmSubStage.lianqi.9', parentRealmId: 'realm.lianqi', order: 9, label: '九层', displayName: '练气·九层', minPowerInclusive: 387, maxPowerExclusive: 420 },
-  { id: 'realmSubStage.zhuji.early', parentRealmId: 'realm.zhuji', order: 1, label: '初层', displayName: '筑基·初层', minPowerInclusive: 420, maxPowerExclusive: 654 },
-  { id: 'realmSubStage.zhuji.middle', parentRealmId: 'realm.zhuji', order: 2, label: '中层', displayName: '筑基·中层', minPowerInclusive: 654, maxPowerExclusive: 887 },
-  { id: 'realmSubStage.zhuji.late', parentRealmId: 'realm.zhuji', order: 3, label: '后层', displayName: '筑基·后层', minPowerInclusive: 887, maxPowerExclusive: 1120 },
-  { id: 'realmSubStage.zifu.early', parentRealmId: 'realm.zifu', order: 1, label: '初期', displayName: '紫府·初期', minPowerInclusive: 1120, maxPowerExclusive: 1495 },
-  { id: 'realmSubStage.zifu.middle', parentRealmId: 'realm.zifu', order: 2, label: '中期', displayName: '紫府·中期', minPowerInclusive: 1495, maxPowerExclusive: 1870 },
-  { id: 'realmSubStage.zifu.late', parentRealmId: 'realm.zifu', order: 3, label: '后期', displayName: '紫府·后期', minPowerInclusive: 1870, maxPowerExclusive: 2245 },
-  { id: 'realmSubStage.zifu.perfect', parentRealmId: 'realm.zifu', order: 4, label: '圆满', displayName: '紫府·圆满', minPowerInclusive: 2245, maxPowerExclusive: 2620 },
-  { id: 'realmSubStage.jindan.default', parentRealmId: 'realm.jindan', order: 1, label: '金丹', displayName: '金丹', minPowerInclusive: 2620, maxPowerExclusive: 5620, isFallback: true },
-  { id: 'realmSubStage.yuanying.default', parentRealmId: 'realm.yuanying', order: 1, label: '元婴', displayName: '元婴', minPowerInclusive: 5620, maxPowerExclusive: Number.POSITIVE_INFINITY, isFallback: true }
+  {
+    id: 'realmSubStage.taixi.xuanjing',
+    parentRealmId: 'realm.taixi',
+    order: 1,
+    label: '玄景',
+    displayName: '胎息·玄景',
+    minPowerInclusive: 0,
+    maxPowerExclusive: 20
+  },
+  {
+    id: 'realmSubStage.taixi.chengming',
+    parentRealmId: 'realm.taixi',
+    order: 2,
+    label: '承明',
+    displayName: '胎息·承明',
+    minPowerInclusive: 20,
+    maxPowerExclusive: 40
+  },
+  {
+    id: 'realmSubStage.taixi.zhouxing',
+    parentRealmId: 'realm.taixi',
+    order: 3,
+    label: '周行',
+    displayName: '胎息·周行',
+    minPowerInclusive: 40,
+    maxPowerExclusive: 60
+  },
+  {
+    id: 'realmSubStage.taixi.qingyuan',
+    parentRealmId: 'realm.taixi',
+    order: 4,
+    label: '青元',
+    displayName: '胎息·青元',
+    minPowerInclusive: 60,
+    maxPowerExclusive: 80
+  },
+  {
+    id: 'realmSubStage.taixi.yujing',
+    parentRealmId: 'realm.taixi',
+    order: 5,
+    label: '玉京',
+    displayName: '胎息·玉京',
+    minPowerInclusive: 80,
+    maxPowerExclusive: 100
+  },
+  {
+    id: 'realmSubStage.taixi.lingchu',
+    parentRealmId: 'realm.taixi',
+    order: 6,
+    label: '灵初',
+    displayName: '胎息·灵初',
+    minPowerInclusive: 100,
+    maxPowerExclusive: 120
+  },
+  {
+    id: 'realmSubStage.lianqi.1',
+    parentRealmId: 'realm.lianqi',
+    order: 1,
+    label: '一层',
+    displayName: '练气·一层',
+    minPowerInclusive: 120,
+    maxPowerExclusive: 153
+  },
+  {
+    id: 'realmSubStage.lianqi.2',
+    parentRealmId: 'realm.lianqi',
+    order: 2,
+    label: '二层',
+    displayName: '练气·二层',
+    minPowerInclusive: 153,
+    maxPowerExclusive: 187
+  },
+  {
+    id: 'realmSubStage.lianqi.3',
+    parentRealmId: 'realm.lianqi',
+    order: 3,
+    label: '三层',
+    displayName: '练气·三层',
+    minPowerInclusive: 187,
+    maxPowerExclusive: 220
+  },
+  {
+    id: 'realmSubStage.lianqi.4',
+    parentRealmId: 'realm.lianqi',
+    order: 4,
+    label: '四层',
+    displayName: '练气·四层',
+    minPowerInclusive: 220,
+    maxPowerExclusive: 253
+  },
+  {
+    id: 'realmSubStage.lianqi.5',
+    parentRealmId: 'realm.lianqi',
+    order: 5,
+    label: '五层',
+    displayName: '练气·五层',
+    minPowerInclusive: 253,
+    maxPowerExclusive: 287
+  },
+  {
+    id: 'realmSubStage.lianqi.6',
+    parentRealmId: 'realm.lianqi',
+    order: 6,
+    label: '六层',
+    displayName: '练气·六层',
+    minPowerInclusive: 287,
+    maxPowerExclusive: 320
+  },
+  {
+    id: 'realmSubStage.lianqi.7',
+    parentRealmId: 'realm.lianqi',
+    order: 7,
+    label: '七层',
+    displayName: '练气·七层',
+    minPowerInclusive: 320,
+    maxPowerExclusive: 353
+  },
+  {
+    id: 'realmSubStage.lianqi.8',
+    parentRealmId: 'realm.lianqi',
+    order: 8,
+    label: '八层',
+    displayName: '练气·八层',
+    minPowerInclusive: 353,
+    maxPowerExclusive: 387
+  },
+  {
+    id: 'realmSubStage.lianqi.9',
+    parentRealmId: 'realm.lianqi',
+    order: 9,
+    label: '九层',
+    displayName: '练气·九层',
+    minPowerInclusive: 387,
+    maxPowerExclusive: 420
+  },
+  {
+    id: 'realmSubStage.zhuji.early',
+    parentRealmId: 'realm.zhuji',
+    order: 1,
+    label: '初层',
+    displayName: '筑基·初层',
+    minPowerInclusive: 420,
+    maxPowerExclusive: 654
+  },
+  {
+    id: 'realmSubStage.zhuji.middle',
+    parentRealmId: 'realm.zhuji',
+    order: 2,
+    label: '中层',
+    displayName: '筑基·中层',
+    minPowerInclusive: 654,
+    maxPowerExclusive: 887
+  },
+  {
+    id: 'realmSubStage.zhuji.late',
+    parentRealmId: 'realm.zhuji',
+    order: 3,
+    label: '后层',
+    displayName: '筑基·后层',
+    minPowerInclusive: 887,
+    maxPowerExclusive: 1120
+  },
+  {
+    id: 'realmSubStage.zifu.early',
+    parentRealmId: 'realm.zifu',
+    order: 1,
+    label: '初期',
+    displayName: '紫府·初期',
+    minPowerInclusive: 1120,
+    maxPowerExclusive: 1495
+  },
+  {
+    id: 'realmSubStage.zifu.middle',
+    parentRealmId: 'realm.zifu',
+    order: 2,
+    label: '中期',
+    displayName: '紫府·中期',
+    minPowerInclusive: 1495,
+    maxPowerExclusive: 1870
+  },
+  {
+    id: 'realmSubStage.zifu.late',
+    parentRealmId: 'realm.zifu',
+    order: 3,
+    label: '后期',
+    displayName: '紫府·后期',
+    minPowerInclusive: 1870,
+    maxPowerExclusive: 2245
+  },
+  {
+    id: 'realmSubStage.zifu.perfect',
+    parentRealmId: 'realm.zifu',
+    order: 4,
+    label: '圆满',
+    displayName: '紫府·圆满',
+    minPowerInclusive: 2245,
+    maxPowerExclusive: 2620
+  },
+  {
+    id: 'realmSubStage.jindan.default',
+    parentRealmId: 'realm.jindan',
+    order: 1,
+    label: '金丹',
+    displayName: '金丹',
+    minPowerInclusive: 2620,
+    maxPowerExclusive: 5620,
+    isFallback: true
+  },
+  {
+    id: 'realmSubStage.yuanying.default',
+    parentRealmId: 'realm.yuanying',
+    order: 1,
+    label: '元婴',
+    displayName: '元婴',
+    minPowerInclusive: 5620,
+    maxPowerExclusive: Number.POSITIVE_INFINITY,
+    isFallback: true
+  }
 ];
 
 const BATTLE_ART_REGISTRY: BattleArtRegistryEntry[] = [
@@ -816,7 +1010,10 @@ function isSubStageAtLeast(currentSubStageId: string, requiredSubStageId: string
   return current.parentRealmId === required.parentRealmId && current.order >= required.order;
 }
 
-function isBattleArtUnlocked(entry: BattleArtRegistryEntry, state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>): boolean {
+function isBattleArtUnlocked(
+  entry: BattleArtRegistryEntry,
+  state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>
+): boolean {
   if (!isRealmAtLeast(state.realmId, entry.requiredRealmId)) {
     return false;
   }
@@ -829,7 +1026,10 @@ function isBattleArtUnlocked(entry: BattleArtRegistryEntry, state: Pick<PlayerCu
   return isSubStageAtLeast(state.realmSubStageId, entry.requiredRealmSubStageId);
 }
 
-function isDivinePowerUnlocked(entry: DivinePowerRegistryEntry, state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>): boolean {
+function isDivinePowerUnlocked(
+  entry: DivinePowerRegistryEntry,
+  state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>
+): boolean {
   if (!isRealmAtLeast(state.realmId, entry.requiredRealmId)) {
     return false;
   }
@@ -861,11 +1061,17 @@ export function resolveRealmSubStageId(realmId: RealmId, currentPower: number) {
   const safePower = Number.isFinite(currentPower) ? currentPower : first.minPowerInclusive;
   const lastCeiling = Number.isFinite(last.maxPowerExclusive) ? last.maxPowerExclusive - 1 : safePower;
   const clampedPower = Math.max(first.minPowerInclusive, Math.min(safePower, lastCeiling));
-  const resolved = candidates.find((item) => clampedPower >= item.minPowerInclusive && clampedPower < item.maxPowerExclusive);
+  const resolved = candidates.find(
+    (item) => clampedPower >= item.minPowerInclusive && clampedPower < item.maxPowerExclusive
+  );
   return (resolved ?? last).id;
 }
 
-export function formatRealmSubStageDisplay(input: { realmId: RealmId; currentPower: number; realmSubStageId?: string | null }) {
+export function formatRealmSubStageDisplay(input: {
+  realmId: RealmId;
+  currentPower: number;
+  realmSubStageId?: string | null;
+}) {
   const subStageId = resolveRealmSubStageId(input.realmId, input.currentPower);
   const subStage = getRealmSubStageById(subStageId);
   const realmName = REALM_NAMES[input.realmId];
@@ -971,9 +1177,7 @@ export function isDivinePowerRuntimeReadyForState(
   return Boolean(entry && entry.runtimeReady && isDivinePowerUnlocked(entry, state));
 }
 
-export function getUnlockedRuntimeReadyBattleArts(
-  state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>
-) {
+export function getUnlockedRuntimeReadyBattleArts(state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>) {
   return getBattleArtRegistryEntries()
     .filter((entry) => entry.runtimeReady && isBattleArtUnlocked(entry, state))
     .map((entry) => ({
@@ -993,9 +1197,7 @@ export function getUnlockedRuntimeReadyDivinePowers(
     }));
 }
 
-export function getBattleSlotLimits(
-  state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>
-) {
+export function getBattleSlotLimits(state: Pick<PlayerCultivationState, 'realmId' | 'realmSubStageId'>) {
   if (state.realmId === 'realm.taixi') {
     if (isSubStageAtLeast(state.realmSubStageId, 'realmSubStage.taixi.yujing')) {
       return {
@@ -1035,57 +1237,41 @@ function resolveBattleArtCandidates(state: PlayerCultivationState): string[] {
   const loadoutIds = state.battleLoadout.equippedBattleArtIds;
   const equippedIds = state.equippedBattleArtIds;
   const knownIds = state.knownBattleArtIds;
-  const primaryIds = loadoutIds.length > 0 ? loadoutIds : (equippedIds.length > 0 ? equippedIds : knownIds);
+  const primaryIds = loadoutIds.length > 0 ? loadoutIds : equippedIds.length > 0 ? equippedIds : knownIds;
   const supportId = state.battleLoadout.activeSupportArtId;
 
-  return uniqueIds([
-    ...primaryIds,
-    ...(supportId ? [supportId] : [])
-  ]);
+  return uniqueIds([...primaryIds, ...(supportId ? [supportId] : [])]);
 }
 
 function resolveDivinePowerCandidates(state: PlayerCultivationState): string[] {
   const loadoutIds = state.battleLoadout.equippedDivinePowerIds;
   const equippedIds = state.equippedDivinePowerIds;
   const knownIds = state.knownDivinePowerIds;
-  return uniqueIds(
-    loadoutIds.length > 0 ? loadoutIds : (equippedIds.length > 0 ? equippedIds : knownIds)
-  );
+  return uniqueIds(loadoutIds.length > 0 ? loadoutIds : equippedIds.length > 0 ? equippedIds : knownIds);
 }
 
 export function projectCombatLoadout(state: PlayerCultivationState) {
   const slotLimits = getBattleSlotLimits(state);
-  const battleArtIds = resolveBattleArtCandidates(state)
-    .filter((id) => {
-      const entry = getBattleArtRegistryEntry(id);
-      return Boolean(
-        entry
-        && entry.category !== 'support'
-        && entry.runtimeReady
-        && isBattleArtUnlocked(entry, state)
-      );
-    });
+  const battleArtIds = resolveBattleArtCandidates(state).filter((id) => {
+    const entry = getBattleArtRegistryEntry(id);
+    return Boolean(entry && entry.category !== 'support' && entry.runtimeReady && isBattleArtUnlocked(entry, state));
+  });
 
   const limitedBattleArtIds = battleArtIds.slice(0, slotLimits.battleArtSlots);
-  const safeBattleArtIds = limitedBattleArtIds.length > 0
-    ? limitedBattleArtIds
-    : createDefaultBattleLoadoutState().equippedBattleArtIds.slice(0, slotLimits.battleArtSlots);
+  const safeBattleArtIds =
+    limitedBattleArtIds.length > 0
+      ? limitedBattleArtIds
+      : createDefaultBattleLoadoutState().equippedBattleArtIds.slice(0, slotLimits.battleArtSlots);
   const supportArtId = slotLimits.supportSlots > 0 ? state.battleLoadout.activeSupportArtId : null;
   const supportBattleArtIds = supportArtId
     ? [supportArtId].filter((id) => {
-      const entry = getBattleArtRegistryEntry(id);
-      return Boolean(
-        entry
-        && entry.category === 'support'
-        && entry.runtimeReady
-        && isBattleArtUnlocked(entry, state)
-      );
-    })
+        const entry = getBattleArtRegistryEntry(id);
+        return Boolean(
+          entry && entry.category === 'support' && entry.runtimeReady && isBattleArtUnlocked(entry, state)
+        );
+      })
     : [];
-  const projectedBattleArtIds = uniqueIds([
-    ...safeBattleArtIds,
-    ...supportBattleArtIds
-  ]);
+  const projectedBattleArtIds = uniqueIds([...safeBattleArtIds, ...supportBattleArtIds]);
   const battleArtProfiles = projectedBattleArtIds.map((id) => projectBattleArtRuntimeProfile(id));
 
   const divinePowerIds = resolveDivinePowerCandidates(state)

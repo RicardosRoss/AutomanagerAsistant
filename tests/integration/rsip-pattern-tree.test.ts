@@ -47,21 +47,22 @@ describe('RSIP 定式树结构', () => {
 
   test('addPattern 有 parentId 时应创建子节点', async () => {
     // Set up tree manually to bypass daily limit
-    const today = todayStr();
     const rootId = generateId('pn');
     const treeId = generateId('pt');
     await PatternTree.create({
       userId,
       treeId,
-      nodes: [{
-        nodeId: rootId,
-        parentId: null,
-        title: '晨间定式',
-        status: 'pending',
-        createdOn: today,
-        children: []
-      }],
-      limits: { maxNewPatternsPerDay: 2 }
+      nodes: [
+        {
+          nodeId: rootId,
+          parentId: null,
+          title: '晨间定式',
+          status: 'pending',
+          createdOn: '2000-01-01',
+          children: []
+        }
+      ],
+      limits: { maxNewPatternsPerDay: 1 }
     });
 
     // Add child via service
@@ -125,9 +126,7 @@ describe('RSIP 定式树结构', () => {
     const summary = await rsipService.deletePatternStack(treeId, rootId);
 
     expect(summary.removedNodeIds).toHaveLength(3);
-    expect(summary.removedNodeIds).toEqual(
-      expect.arrayContaining([rootId, child1Id, child2Id])
-    );
+    expect(summary.removedNodeIds).toEqual(expect.arrayContaining([rootId, child1Id, child2Id]));
 
     // Verify nodes are removed from tree
     const tree = await PatternTree.findOne({ treeId });
@@ -165,9 +164,7 @@ describe('RSIP 定式树结构', () => {
   test('每天最多新增一个定式', async () => {
     await rsipService.addPattern(userId + 100, { title: '第一个定式' });
 
-    await expect(
-      rsipService.addPattern(userId + 100, { title: '第二个定式' })
-    ).rejects.toThrow('今日已添加过新定式');
+    await expect(rsipService.addPattern(userId + 100, { title: '第二个定式' })).rejects.toThrow('今日已添加过新定式');
   });
 });
 
@@ -205,9 +202,7 @@ describe('下必为例 - PrecedentService 判例系统', () => {
 
     expect(violation.requiresDecision).toBe(true);
 
-    expect(violation.options).toEqual(
-      expect.arrayContaining(['break_chain', 'allow_forever'])
-    );
+    expect(violation.options).toEqual(expect.arrayContaining(['break_chain', 'allow_forever']));
     expect(violation.options).toHaveLength(2);
   });
 
@@ -219,7 +214,8 @@ describe('下必为例 - PrecedentService 判例系统', () => {
     const rule = await precedentService.allowForever({
       userId,
       chainType: 'main',
-      behaviorKey: 'phone_call'
+      behaviorKey: 'phone_call',
+      chainId: 'chain_precedent_phone'
     });
 
     expect(rule).toBeDefined();
@@ -235,7 +231,8 @@ describe('下必为例 - PrecedentService 判例系统', () => {
     await precedentService.allowForever({
       userId,
       chainType: 'main',
-      behaviorKey: 'stretch_break'
+      behaviorKey: 'stretch_break',
+      chainId: 'chain_test_precedent_skip'
     });
 
     const violation2 = await precedentService.reportViolation({

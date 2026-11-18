@@ -10,6 +10,8 @@ describe('玄鉴命令集成测试', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sendMessage.mockResolvedValue({ message_id: 1 });
+    deleteMessage.mockResolvedValue(true);
     handler = new CultivationCommandHandlers({
       sendMessage,
       deleteMessage,

@@ -72,7 +72,9 @@ export function toLegacyCultivationShell(state: PlayerCultivationState, immortal
   };
 }
 
-export function deriveCanonicalSnapshotFromLegacy(user: Pick<UserDocument, 'cultivation' | 'stats'>) {
+type LegacySource = Pick<UserDocument, 'cultivation'> & { stats: Pick<UserDocument['stats'], 'currentStreak'> };
+
+export function deriveCanonicalSnapshotFromLegacy(user: LegacySource) {
   const focusStreak = Number.isFinite(user.stats.currentStreak) ? Math.max(user.stats.currentStreak, 0) : 0;
   const starterBattleArtIds = getStarterBattleArtIds();
 
@@ -108,7 +110,7 @@ export function deriveCanonicalSnapshotFromLegacy(user: Pick<UserDocument, 'cult
   };
 }
 
-export function shouldRefreshCanonicalFromLegacy(user: Pick<UserDocument, 'cultivation' | 'stats'>) {
+export function shouldRefreshCanonicalFromLegacy(user: LegacySource) {
   const canonical = user.cultivation.canonical;
 
   if (!canonical?.state) {

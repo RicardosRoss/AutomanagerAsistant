@@ -16,6 +16,8 @@ export interface IUserStats {
   currentStreak: number;
   longestStreak: number;
   todayCompletedTasks: number;
+  settledTaskIds?: string[];
+  startedTaskIds?: string[];
   lastTaskDate?: Date;
 }
 
@@ -99,6 +101,26 @@ export interface IUser {
   fullName?: string;
   divinationWinRate?: number;
   breakthroughSuccessRate?: number;
+  focusRewardReceipts?: IFocusRewardReceipt[];
+  pendingDivinationHistories?: IDivinationHistory[];
+  pendingFocusRewards?: IPendingFocusReward[];
+}
+
+export interface IPendingFocusReward {
+  taskId: string;
+  duration: number;
+  confirmedAt: Date;
+  legacyCurrentStreakBefore: number;
+}
+
+export interface IFocusRewardReceipt {
+  taskId: string;
+  status: 'processing' | 'settled' | 'failed';
+  reward?: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+  processingUntil?: Date;
+  processingToken?: string;
 }
 
 export interface IUserMethods {
@@ -160,10 +182,30 @@ export interface ITaskMetadata {
 
 export interface ITask {
   taskId: string;
+  creationState?: 'initializing' | 'ready' | 'rolling_back';
+  submissionToken?: string;
+  mainChainId?: string;
   description: string;
   duration: number;
   startTime: Date;
   endTime?: Date;
+  confirmedAt?: Date;
+  elapsedDuration?: number;
+  settlementStatus?: 'pending' | 'processing' | 'needs_retry' | 'settled';
+  coreProtocolVersion?: 1;
+  settlementError?: string;
+  rewardApplied?: boolean;
+  rewardProtocolVersion?: 1;
+  rewardStatus?: 'pending' | 'processing' | 'needs_retry' | 'settled';
+  rewardToken?: string;
+  rewardLeaseUntil?: Date;
+  rewardError?: string;
+  rewardSnapshot?: Record<string, unknown>;
+  chainStatsApplied?: boolean;
+  userStatsApplied?: boolean;
+  dailyStatsApplied?: boolean;
+  settlementLeaseUntil?: Date;
+  settlementToken?: string;
   status: TaskStatus;
   actualDuration?: number;
   isReserved: boolean;
@@ -248,6 +290,7 @@ export interface IDailyStatsStats {
   tasksStarted: number;
   tasksCompleted: number;
   tasksFailed: number;
+  tasksCancelled: number;
   totalMinutes: number;
   averageTaskDuration: number;
   longestTask: number;
@@ -265,6 +308,9 @@ export interface IDailyPatternExecution {
 }
 
 export interface IDailyStatsMetadata {
+  refreshToken?: string;
+  refreshPending?: boolean;
+  refreshTimezone?: string;
   firstTaskAt?: Date;
   lastTaskAt?: Date;
   mostProductiveHour?: number;
@@ -332,12 +378,7 @@ export interface IDailyStatsMethods {
 
 export type DailyStatsDocument = HydratedDocument<IDailyStats, IDailyStatsMethods>;
 
-export interface IDailyStatsModel extends Model<IDailyStats, Record<string, never>, IDailyStatsMethods> {
-  findOrCreateDaily(userId: number, date?: Date): Promise<DailyStatsDocument>;
-  getUserPeriodStats(userId: number, days?: number): Promise<DailyStatsDocument[]>;
-  generateWeeklyReport(userId: number): Promise<Record<string, unknown>>;
-  getPlatformStats(date?: Date): Promise<Record<string, unknown>>;
-}
+export type IDailyStatsModel = Model<IDailyStats, Record<string, never>, IDailyStatsMethods>;
 
 export interface IDivinationHistory {
   userId: number;
@@ -423,6 +464,17 @@ export interface IMainChain {
   levelCounters: ILevelCounters;
   nodes: IMainChainNode[];
   status: 'active' | 'broken';
+  violationResolutions?: Array<{ decisionToken: string; decision: 'break_chain' | 'allow_forever'; settledAt: Date }>;
+  pendingViolation?: {
+    decisionToken?: string;
+    behaviorKey: string;
+    reportedAt: Date;
+    processingToken?: string;
+    processingUntil?: Date;
+    decision?: 'break_chain' | 'allow_forever';
+    taskIds?: string[];
+    taskChainId?: string | null;
+  };
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -435,10 +487,13 @@ export interface IMainChainModel extends Model<IMainChain> {
 
 // AuxChain — tracks reservations and their fulfillment
 
-export type PendingReservationStatus = 'pending' | 'fulfilled' | 'expired' | 'cancelled';
+export type PendingReservationStatus = 'pending' | 'starting' | 'fulfilled' | 'expired' | 'cancelled';
 export type HistoryReservationStatus = 'fulfilled' | 'expired' | 'cancelled' | 'delayed';
 
 export interface IPendingReservation {
+  startToken?: string;
+  startClaimedAt?: Date;
+  startLeaseUntil?: Date;
   reservationId?: string;
   signal?: string;
   duration?: number;
@@ -448,6 +503,7 @@ export interface IPendingReservation {
 }
 
 export interface IReservationHistoryEntry {
+  resolutionId?: string;
   reservationId?: string;
   signal?: string;
   duration?: number;
@@ -462,6 +518,21 @@ export interface IAuxChain {
   userId: number;
   chainId: string;
   pendingReservation?: IPendingReservation;
+  pendingDecision?: {
+    decisionToken?: string;
+    behaviorKey: string;
+    notifiedAt?: Date;
+    notificationToken?: string;
+    notifyingUntil?: Date;
+    nextNotificationAt?: Date;
+    delayMinutes?: number;
+    processingToken?: string;
+    processingUntil?: Date;
+    chosenDecision?: 'break_chain' | 'allow_forever';
+    resolutionAt?: Date;
+    resolutionId?: string;
+  };
+  completedReservations: number;
   reservationHistory: IReservationHistoryEntry[];
   status: 'active' | 'inactive';
   createdAt?: Date;
@@ -479,6 +550,7 @@ export type PrecedentDecision = 'allow_forever';
 export interface IPrecedentRuleScope {
   behaviorKey: string;
   chainType: 'main' | 'aux';
+  chainId?: string;
 }
 
 export interface IPrecedentRule {
@@ -516,6 +588,9 @@ export interface IPatternTree {
   treeId: string;
   nodes: IPatternNode[];
   limits: IPatternTreeLimits;
+  lastAddedOn?: string;
+  lastAddedAt?: Date;
+  executions?: Array<{ nodeId: string; title: string; executedAt: Date; success: boolean; removedNodeIds: string[] }>;
   createdAt?: Date;
   updatedAt?: Date;
 }

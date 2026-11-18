@@ -4,20 +4,14 @@ import PatternTree from '../../../src/models/PatternTree.js';
 import RSIPService from '../../../src/services/RSIPService.js';
 
 function todayStr(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  // These fixtures have no User record, so RSIP uses its UTC fallback.
+  return new Date().toISOString().slice(0, 10);
 }
 
 function yesterdayStr(): string {
   const d = new Date();
-  d.setDate(d.getDate() - 1);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
 }
 
 describe('RSIPService', () => {
@@ -107,7 +101,13 @@ describe('RSIPService', () => {
       // Move root's createdOn to yesterday so we can add a child today
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': root.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const child = await service.addPattern(userId, {
@@ -132,9 +132,7 @@ describe('RSIPService', () => {
     test('throws when daily limit reached (1 per day by default)', async () => {
       await service.addPattern(userId, { title: '第一个定式' });
 
-      await expect(
-        service.addPattern(userId, { title: '第二个定式' })
-      ).rejects.toThrow('今日已添加过新定式');
+      await expect(service.addPattern(userId, { title: '第二个定式' })).rejects.toThrow('今日已添加过新定式');
     });
 
     test('allows adding again on a different day', async () => {
@@ -144,7 +142,13 @@ describe('RSIPService', () => {
       // Manually change createdOn to yesterday to simulate a different day
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': first.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       // Should now allow another pattern today
@@ -157,12 +161,16 @@ describe('RSIPService', () => {
       const root = await service.addPattern(userId, { title: '占位' });
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': root.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
-      await expect(
-        service.addPattern(userId, { title: '孤儿节点', parentId: 'pn_nonexistent' })
-      ).rejects.toThrow();
+      await expect(service.addPattern(userId, { title: '孤儿节点', parentId: 'pn_nonexistent' })).rejects.toThrow();
     });
   });
 
@@ -176,7 +184,13 @@ describe('RSIPService', () => {
       // Simulate next day for child
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': root.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const child = await service.addPattern(userId, { title: '叶子', parentId: root.newNodeId });
@@ -204,7 +218,13 @@ describe('RSIPService', () => {
       // Move root to yesterday
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': root.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const childA = await service.addPattern(userId, { title: 'A', parentId: root.newNodeId });
@@ -212,7 +232,13 @@ describe('RSIPService', () => {
       // Move childA to yesterday
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': childA.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const grandChild = await service.addPattern(userId, { title: '孙', parentId: childA.newNodeId });
@@ -220,7 +246,13 @@ describe('RSIPService', () => {
       // Move grandChild to yesterday
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': grandChild.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const childB = await service.addPattern(userId, { title: 'B', parentId: root.newNodeId });
@@ -254,7 +286,13 @@ describe('RSIPService', () => {
       // Move root to yesterday
       await PatternTree.updateOne(
         { userId, 'nodes.nodeId': root.newNodeId },
-        { $set: { 'nodes.$.createdOn': yesterdayStr() } }
+        {
+          $set: {
+            'nodes.$.createdOn': yesterdayStr(),
+            lastAddedOn: yesterdayStr(),
+            lastAddedAt: new Date(Date.now() - 86400000)
+          }
+        }
       );
 
       const child = await service.addPattern(userId, { title: '子', parentId: root.newNodeId });
@@ -271,18 +309,14 @@ describe('RSIPService', () => {
     });
 
     test('throws if treeId not found', async () => {
-      await expect(
-        service.deletePatternStack('pt_nonexistent', 'pn_any')
-      ).rejects.toThrow();
+      await expect(service.deletePatternStack('pt_nonexistent', 'pn_any')).rejects.toThrow();
     });
 
     test('throws if nodeId not found in tree', async () => {
       await service.addPattern(userId, { title: '根' });
       const tree = await PatternTree.findOne({ userId });
 
-      await expect(
-        service.deletePatternStack(tree!.treeId, 'pn_nonexistent')
-      ).rejects.toThrow();
+      await expect(service.deletePatternStack(tree!.treeId, 'pn_nonexistent')).rejects.toThrow();
     });
   });
 

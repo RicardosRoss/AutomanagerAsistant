@@ -12,9 +12,25 @@ import type {
 import { formatRealmSubStageDisplay } from './xuanjianV2Registry.js';
 
 type StageName =
-  | '玄景' | '承明' | '周行' | '青元' | '玉京' | '灵初'
-  | '一层' | '二层' | '三层' | '四层' | '五层' | '六层' | '七层' | '八层' | '九层'
-  | '初期' | '中期' | '后期' | '圆满'
+  | '玄景'
+  | '承明'
+  | '周行'
+  | '青元'
+  | '玉京'
+  | '灵初'
+  | '一层'
+  | '二层'
+  | '三层'
+  | '四层'
+  | '五层'
+  | '六层'
+  | '七层'
+  | '八层'
+  | '九层'
+  | '初期'
+  | '中期'
+  | '后期'
+  | '圆满'
   | '前期';
 
 export const UNIVERSAL_DAO_TRACK = 'universal' as const;
@@ -271,11 +287,7 @@ export const XUANJIAN_MAIN_METHODS: CanonicalMainMethod[] = [
     requiredAura: [],
     lineageTag: 'mingyang',
     zifuPowerCoverage: {
-      candidatePowerIds: [
-        'power.clear_heart',
-        'power.long_bright_steps',
-        'power.imperial_gaze_origin'
-      ],
+      candidatePowerIds: ['power.clear_heart', 'power.long_bright_steps', 'power.imperial_gaze_origin'],
       maxPowerCount: 5
     }
   },
@@ -662,11 +674,7 @@ export function getGeneralAttainmentMultiplier(attainment: number): number {
   const thirdBand = Math.min(Math.max(safeAttainment - 30, 0), 30);
   const fourthBand = Math.max(safeAttainment - 60, 0);
 
-  const multiplier = 1
-    + firstBand * 0.02
-    + secondBand * 0.01
-    + thirdBand * 0.005
-    + fourthBand * 0.002;
+  const multiplier = 1 + firstBand * 0.02 + secondBand * 0.01 + thirdBand * 0.005 + fourthBand * 0.002;
 
   return Number(multiplier.toFixed(3));
 }
@@ -712,9 +720,7 @@ export function getSameSchoolCultivationMultiplier(
     return 1;
   }
 
-  const hasMatchingLineageTag = methodTags.some(
-    (tag) => normalizeMainDaoTrack(tag) === normalizedMainDaoTrack
-  );
+  const hasMatchingLineageTag = methodTags.some((tag) => normalizeMainDaoTrack(tag) === normalizedMainDaoTrack);
 
   if (!hasMatchingLineageTag) {
     return 1;
@@ -801,13 +807,20 @@ export function getCanonicalRealmStageInRealm(currentPower: number, realmId: Rea
 
 function getStageNameByRealm(realmId: RealmId, progress: number): StageName {
   switch (realmId) {
-    case 'realm.taixi': return getTaixiStage(progress);
-    case 'realm.lianqi': return getLianqiStage(progress);
-    case 'realm.zhuji': return getZhujiStage(progress);
-    case 'realm.zifu': return getZifuStage(progress);
-    case 'realm.jindan': return getJindanStage(progress);
-    case 'realm.yuanying': return getYuanyingStage(progress);
-    default: return getTaixiStage(progress);
+    case 'realm.taixi':
+      return getTaixiStage(progress);
+    case 'realm.lianqi':
+      return getLianqiStage(progress);
+    case 'realm.zhuji':
+      return getZhujiStage(progress);
+    case 'realm.zifu':
+      return getZifuStage(progress);
+    case 'realm.jindan':
+      return getJindanStage(progress);
+    case 'realm.yuanying':
+      return getYuanyingStage(progress);
+    default:
+      return getTaixiStage(progress);
   }
 }
 
@@ -822,7 +835,11 @@ export function formatCanonicalStage(power: number): StageName {
   return getTaixiStage(power);
 }
 
-export function formatCanonicalRealmDisplay(state: { realmId: RealmId; currentPower: number; realmSubStageId?: string | null }): CanonicalRealmDisplay {
+export function formatCanonicalRealmDisplay(state: {
+  realmId: RealmId;
+  currentPower: number;
+  realmSubStageId?: string | null;
+}): CanonicalRealmDisplay {
   const realm = getRealmById(state.realmId);
   const stage = getCanonicalRealmStageInRealm(state.currentPower, state.realmId).name;
   const subStageDisplay = formatRealmSubStageDisplay(state);
@@ -892,9 +909,9 @@ export function getBreakthroughRequirement(realmId: RealmId) {
 export function getDivinePowerBreakthroughRequirement(
   targetPowerOrdinal: DivinePowerBreakthroughRequirement['targetPowerOrdinal']
 ) {
-  return ZIFU_DIVINE_POWER_REQUIREMENTS.find(
-    (requirement) => requirement.targetPowerOrdinal === targetPowerOrdinal
-  ) ?? null;
+  return (
+    ZIFU_DIVINE_POWER_REQUIREMENTS.find((requirement) => requirement.targetPowerOrdinal === targetPowerOrdinal) ?? null
+  );
 }
 
 export {

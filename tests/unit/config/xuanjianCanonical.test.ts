@@ -99,7 +99,9 @@ describe('xuanjian canonical config', () => {
         minMethodGrade: 5
       }
     });
-    expect(getBreakthroughMethodById('breakthrough.zifu_divine_power_base')?.applicableTransition).toBe('zifu_divine_power');
+    expect(getBreakthroughMethodById('breakthrough.zifu_divine_power_base')?.applicableTransition).toBe(
+      'zifu_divine_power'
+    );
     expect(getBreakthroughMethodById('breakthrough.missing')).toBeNull();
   });
 

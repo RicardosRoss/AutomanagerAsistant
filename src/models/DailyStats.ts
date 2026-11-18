@@ -9,38 +9,6 @@ import type {
   ITask
 } from '../types/models.js';
 
-interface IWeeklyReportDay {
-  date: Date;
-  completed: number;
-  minutes: number;
-  successRate: number;
-}
-
-interface IWeeklyReportSummary {
-  totalTasks: number;
-  totalCompletedTasks: number;
-  totalMinutes: number;
-  averageSuccessRate: number;
-  bestDay: IWeeklyReportDay | null;
-  worstDay: IWeeklyReportDay | null;
-  dailyStats: IWeeklyReportDay[];
-  trends: {
-    improving: boolean;
-    declining: boolean;
-    stable: boolean;
-  };
-}
-
-interface IPlatformStats {
-  totalUsers: number;
-  totalTasks: number;
-  totalCompletedTasks: number;
-  totalMinutes: number;
-  totalChains: number;
-  totalBrokenChains: number;
-  averageSuccessRate: number;
-}
-
 const dailyStatsSchema = new Schema<IDailyStats, IDailyStatsModel, IDailyStatsMethods>(
   {
     userId: { type: Number, required: true, index: true },
@@ -49,6 +17,7 @@ const dailyStatsSchema = new Schema<IDailyStats, IDailyStatsModel, IDailyStatsMe
       tasksStarted: { type: Number, default: 0 },
       tasksCompleted: { type: Number, default: 0 },
       tasksFailed: { type: Number, default: 0 },
+      tasksCancelled: { type: Number, default: 0 },
       totalMinutes: { type: Number, default: 0 },
       averageTaskDuration: { type: Number, default: 0 },
       longestTask: { type: Number, default: 0 },
@@ -66,6 +35,9 @@ const dailyStatsSchema = new Schema<IDailyStats, IDailyStatsModel, IDailyStatsMe
       }
     ],
     metadata: {
+      refreshToken: String,
+      refreshPending: Boolean,
+      refreshTimezone: String,
       firstTaskAt: Date,
       lastTaskAt: Date,
       mostProductiveHour: Number,
@@ -247,194 +219,6 @@ dailyStatsSchema.methods.getSummary = function getSummary(this: DailyStatsDocume
       interruptions: this.metadata.interruptions
     }
   };
-};
-
-dailyStatsSchema.statics.findOrCreateDaily = async function findOrCreateDaily(
-  this: IDailyStatsModel,
-  userId: number,
-  date = new Date()
-) {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  let dailyStats = await this.findOne({
-    userId,
-    date: startOfDay
-  });
-
-  if (!dailyStats) {
-    dailyStats = await this.create({
-      userId,
-      date: startOfDay,
-      stats: {
-        tasksStarted: 0,
-        tasksCompleted: 0,
-        tasksFailed: 0,
-        totalMinutes: 0,
-        averageTaskDuration: 0,
-        longestTask: 0,
-        shortestTask: Number.MAX_VALUE,
-        successRate: 0,
-        chainsCreated: 0,
-        chainsBroken: 0,
-        longestChain: 0
-      },
-      patterns: [],
-      metadata: {
-        interruptions: 0,
-        peakPerformanceHours: [],
-        lowPerformanceHours: []
-      }
-    });
-  }
-
-  return dailyStats;
-};
-
-dailyStatsSchema.statics.getUserPeriodStats = async function getUserPeriodStats(
-  this: IDailyStatsModel,
-  userId: number,
-  days = 7
-) {
-  const endDate = new Date();
-  const startDate = new Date();
-
-  startDate.setDate(startDate.getDate() - days);
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
-
-  return this.find({
-    userId,
-    date: { $gte: startDate, $lte: endDate }
-  }).sort({ date: -1 });
-};
-
-dailyStatsSchema.statics.generateWeeklyReport = async function generateWeeklyReport(
-  this: IDailyStatsModel,
-  userId: number
-): Promise<IWeeklyReportSummary> {
-  const weeklyStats = await this.getUserPeriodStats(userId, 7);
-
-  const summary: IWeeklyReportSummary = {
-    totalTasks: 0,
-    totalCompletedTasks: 0,
-    totalMinutes: 0,
-    averageSuccessRate: 0,
-    bestDay: null,
-    worstDay: null,
-    dailyStats: [],
-    trends: {
-      improving: false,
-      declining: false,
-      stable: true
-    }
-  };
-
-  if (weeklyStats.length === 0) {
-    return summary;
-  }
-
-  weeklyStats.forEach((dayStats) => {
-    summary.totalTasks += dayStats.stats.tasksStarted;
-    summary.totalCompletedTasks += dayStats.stats.tasksCompleted;
-    summary.totalMinutes += dayStats.stats.totalMinutes;
-    summary.dailyStats.push({
-      date: dayStats.date,
-      completed: dayStats.stats.tasksCompleted,
-      minutes: dayStats.stats.totalMinutes,
-      successRate: dayStats.stats.successRate
-    });
-  });
-
-  summary.averageSuccessRate =
-    summary.totalTasks > 0 ? (summary.totalCompletedTasks / summary.totalTasks) * 100 : 0;
-
-  let bestScore = -1;
-  let worstScore = Number.POSITIVE_INFINITY;
-
-  weeklyStats.forEach((dayStats) => {
-    const score = dayStats.stats.tasksCompleted + dayStats.stats.totalMinutes / 60;
-
-    if (score > bestScore) {
-      bestScore = score;
-      summary.bestDay = {
-        date: dayStats.date,
-        completed: dayStats.stats.tasksCompleted,
-        minutes: dayStats.stats.totalMinutes,
-        successRate: dayStats.stats.successRate
-      };
-    }
-
-    if (score < worstScore && score > 0) {
-      worstScore = score;
-      summary.worstDay = {
-        date: dayStats.date,
-        completed: dayStats.stats.tasksCompleted,
-        minutes: dayStats.stats.totalMinutes,
-        successRate: dayStats.stats.successRate
-      };
-    }
-  });
-
-  if (weeklyStats.length >= 3) {
-    const recent = weeklyStats.slice(0, 3);
-    const earlier = weeklyStats.slice(-3);
-    const recentAvg = recent.reduce((sum, day) => sum + day.stats.tasksCompleted, 0) / recent.length;
-    const earlierAvg = earlier.reduce((sum, day) => sum + day.stats.tasksCompleted, 0) / earlier.length;
-
-    if (recentAvg > earlierAvg * 1.2) {
-      summary.trends.improving = true;
-      summary.trends.stable = false;
-    } else if (recentAvg < earlierAvg * 0.8) {
-      summary.trends.declining = true;
-      summary.trends.stable = false;
-    }
-  }
-
-  return summary;
-};
-
-dailyStatsSchema.statics.getPlatformStats = async function getPlatformStats(
-  this: IDailyStatsModel,
-  date = new Date()
-): Promise<IPlatformStats> {
-  const startOfDay = new Date(date);
-  const endOfDay = new Date(date);
-
-  startOfDay.setHours(0, 0, 0, 0);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  const stats = await this.aggregate<IPlatformStats>([
-    {
-      $match: {
-        date: { $gte: startOfDay, $lte: endOfDay }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalUsers: { $sum: 1 },
-        totalTasks: { $sum: '$stats.tasksStarted' },
-        totalCompletedTasks: { $sum: '$stats.tasksCompleted' },
-        totalMinutes: { $sum: '$stats.totalMinutes' },
-        totalChains: { $sum: '$stats.chainsCreated' },
-        totalBrokenChains: { $sum: '$stats.chainsBroken' },
-        averageSuccessRate: { $avg: '$stats.successRate' }
-      }
-    }
-  ]);
-
-  return (
-    stats[0] || {
-      totalUsers: 0,
-      totalTasks: 0,
-      totalCompletedTasks: 0,
-      totalMinutes: 0,
-      totalChains: 0,
-      totalBrokenChains: 0,
-      averageSuccessRate: 0
-    }
-  );
 };
 
 dailyStatsSchema.index({ userId: 1, date: 1 }, { unique: true });

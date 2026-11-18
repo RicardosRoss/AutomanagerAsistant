@@ -1,10 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import type {
-  IMainChain,
-  IMainChainModel,
-  IMainChainNode,
-  MainChainDocument
-} from '../types/models.js';
+import type { IMainChain, IMainChainModel, IMainChainNode, MainChainDocument } from '../types/models.js';
 import { generateId } from '../utils/index.js';
 
 const nodeSchema = new Schema<IMainChainNode>(
@@ -31,26 +26,46 @@ const mainChainSchema = new Schema<IMainChain, IMainChainModel>(
       cluster: { type: Number, default: 0 }
     },
     nodes: [nodeSchema],
-    status: { type: String, enum: ['active', 'broken'], default: 'active' }
+    pendingViolation: {
+      type: new Schema(
+        {
+          behaviorKey: { type: String, required: true },
+          reportedAt: { type: Date, required: true },
+          decisionToken: String,
+          taskIds: { type: [String], default: undefined },
+          taskChainId: String,
+          processingToken: String,
+          processingUntil: Date,
+          decision: { type: String, enum: ['break_chain', 'allow_forever'] }
+        },
+        { _id: false }
+      ),
+      default: undefined
+    },
+    status: { type: String, enum: ['active', 'broken'], default: 'active' },
+    violationResolutions: [{
+      decisionToken: String, decision: { type: String, enum: ['break_chain', 'allow_forever'] }, settledAt: Date
+    }]
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
   }
 );
 
 // Partial unique index: only one active chain per user
-mainChainSchema.index(
-  { userId: 1 },
-  { unique: true, partialFilterExpression: { status: 'active' } }
-);
+mainChainSchema.index({ userId: 1 }, {
+  name: 'active_mainchain_per_user', unique: true, partialFilterExpression: { status: 'active' }
+});
 
 mainChainSchema.statics.findOrCreateActive = async function findOrCreateActive(
   this: IMainChainModel,
   userId: number,
   markerLabel: string
 ): Promise<MainChainDocument> {
+  await this.init();
   const chainId = generateId('mc');
   const doc = await this.findOneAndUpdate(
     { userId, status: 'active' },

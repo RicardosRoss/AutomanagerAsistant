@@ -3,6 +3,11 @@ type ValueOf<T> = T[keyof T];
 // 应用常量定义
 import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 
+export const MAX_TASK_DESCRIPTION_CHARACTERS = 1000;
+export const TASK_DESCRIPTION_ERROR = '请用1到1000个字符描述这次任务，再重新确认。';
+export const TASK_DESCRIPTION_PREVIEW_SUFFIX = '\n（描述较长，仅显示前1000个字符；原内容已保留。）';
+export const RESERVATION_SERVICE_UNAVAILABLE = '预约服务尚未就绪，请稍后重试或使用 /reserve_status 查看状态';
+
 export const TASK_STATUS = {
   PENDING: 'pending',
   RUNNING: 'running',
@@ -64,11 +69,7 @@ export const TASK_CONSTRAINTS = {
 export const SACRED_SEAT_PRINCIPLE = {
   RESET_ON_FAILURE: true,
   RESET_FIELDS: ['totalTasks', 'completedTasks', 'failedTasks', 'totalMinutes', 'averageTaskDuration'],
-  BREAK_MESSAGES: [
-    '根据神圣座位原理，任务失败导致链条重置',
-    '连续性被打破，重新开始积累',
-    '失败是成功之母，重新出发！'
-  ]
+  BREAK_MESSAGES: ['根据神圣座位原理，任务失败导致链条重置', '连续性被打破，重新开始积累', '失败是成功之母，重新出发！']
 } as const;
 
 export const LINEAR_DELAY_PRINCIPLE = {
@@ -91,6 +92,7 @@ export const BOT_COMMANDS = {
   EXPORT: 'export',
   PATTERNS: 'patterns',
   PRECEDENTS: 'precedents',
+  VIOLATION: 'violation',
   RESERVE_STATUS: 'reserve_status',
   LEADERBOARD: 'leaderboard'
 } as const;

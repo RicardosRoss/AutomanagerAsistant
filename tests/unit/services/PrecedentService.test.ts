@@ -36,7 +36,8 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
-        behaviorKey: 'phone_call'
+        behaviorKey: 'phone_call',
+        chainId: 'chain_test_002'
       });
 
       const result = await precedentService.reportViolation({
@@ -56,6 +57,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'social_media'
       });
 
@@ -76,6 +78,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'stretch_break'
       });
 
@@ -98,7 +101,8 @@ describe('PrecedentService', () => {
       const doc = await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
-        behaviorKey: 'email_check'
+        behaviorKey: 'email_check',
+        chainId: 'chain_flow_001'
       });
 
       expect(doc).toBeDefined();
@@ -113,6 +117,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'aux',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'water_break'
       });
 
@@ -130,6 +135,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'duplicate_test'
       });
 
@@ -137,6 +143,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'duplicate_test'
       });
 
@@ -157,7 +164,8 @@ describe('PrecedentService', () => {
       const allowed = await precedentService.isBehaviorAllowed(
         testUserId,
         'nonexistent_behavior',
-        'main'
+        'main',
+        'chain-scoped-fixture'
       );
 
       expect(allowed).toBe(false);
@@ -167,13 +175,15 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'allowed_behavior'
       });
 
       const allowed = await precedentService.isBehaviorAllowed(
         testUserId,
         'allowed_behavior',
-        'main'
+        'main',
+        'chain-scoped-fixture'
       );
 
       expect(allowed).toBe(true);
@@ -183,6 +193,7 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'chain_specific_test'
       });
 
@@ -190,7 +201,8 @@ describe('PrecedentService', () => {
       const allowedAux = await precedentService.isBehaviorAllowed(
         testUserId,
         'chain_specific_test',
-        'aux'
+        'aux',
+        'chain-scoped-fixture'
       );
 
       expect(allowedAux).toBe(false);
@@ -199,7 +211,8 @@ describe('PrecedentService', () => {
       const allowedMain = await precedentService.isBehaviorAllowed(
         testUserId,
         'chain_specific_test',
-        'main'
+        'main',
+        'chain-scoped-fixture'
       );
 
       expect(allowedMain).toBe(true);
@@ -209,13 +222,15 @@ describe('PrecedentService', () => {
       await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain-scoped-fixture',
         behaviorKey: 'user_specific_test'
       });
 
       const allowedOther = await precedentService.isBehaviorAllowed(
         999999999,
         'user_specific_test',
-        'main'
+        'main',
+        'chain-scoped-fixture'
       );
 
       expect(allowedOther).toBe(false);
@@ -241,6 +256,7 @@ describe('PrecedentService', () => {
       const rule = await precedentService.allowForever({
         userId: testUserId,
         chainType: 'main',
+        chainId: 'chain_flow_001',
         behaviorKey: 'email_check'
       });
 
@@ -250,7 +266,7 @@ describe('PrecedentService', () => {
       const v2 = await precedentService.reportViolation({
         userId: testUserId,
         chainType: 'main',
-        chainId: 'chain_flow_002',
+        chainId: 'chain_flow_001',
         behaviorKey: 'email_check'
       });
 
