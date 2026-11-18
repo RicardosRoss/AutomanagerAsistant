@@ -8,6 +8,7 @@ import PrecedentRule from './PrecedentRule.js';
 import TaskChain from './TaskChain.js';
 import User from './User.js';
 import TaskDraft from './TaskDraft.js';
+import ScheduledPlan from './ScheduledPlan.js';
 
 export {
   AuxChain,
@@ -18,6 +19,7 @@ export {
   User,
   TaskChain,
   TaskDraft,
+  ScheduledPlan,
   DailyStats,
   DivinationHistory,
 };
@@ -41,6 +43,7 @@ export default {
   User,
   TaskChain,
   TaskDraft,
+  ScheduledPlan,
   DailyStats,
   DivinationHistory,
 };

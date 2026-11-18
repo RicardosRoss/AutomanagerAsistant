@@ -17,6 +17,8 @@ import CultivationCommandHandlers from './handlers/cultivationCommands.js';
 import CoreCommandHandlers from './handlers/coreCommands.js';
 import TaskCommandHandlers from './handlers/taskCommands.js';
 import TaskDraftHandlers from './handlers/taskDraftCommands.js';
+import ScheduleCommandHandlers from './handlers/scheduleCommands.js';
+import ScheduleService from './services/ScheduleService.js';
 import PatternCommandHandlers from './handlers/patternCommands.js';
 import MainViolationService from './services/MainViolationService.js';
 import type { ContentNameResolverDependency } from './services/CultivationService.js';
@@ -54,6 +56,10 @@ class SelfControlBot {
 
   draftHandlers: TaskDraftHandlers | null;
 
+  scheduleService: ScheduleService;
+
+  scheduleHandlers: ScheduleCommandHandlers | null = null;
+
   isRunning: boolean;
 
   botUsername: string | null = null;
@@ -64,6 +70,8 @@ class SelfControlBot {
     this.config = new BotConfig();
     this.bot = null;
     this.queueService = new QueueService();
+    this.scheduleService = new ScheduleService();
+    this.queueService.scheduleService = this.scheduleService;
     this.cultivationService = new CultivationService({
       contentNameResolver: dependencies.contentNameResolver
     });
@@ -157,6 +165,7 @@ class SelfControlBot {
       onError: this.sendErrorMessage.bind(this)
     });
     this.draftHandlers = new TaskDraftHandlers(bot, this.taskHandlers);
+    this.scheduleHandlers = new ScheduleCommandHandlers(bot, this.scheduleService, this.draftHandlers);
 
     this.cultivationHandlers = new CultivationCommandHandlers(bot, this.cultivationService);
   }
@@ -321,6 +330,7 @@ class SelfControlBot {
 
     const input = args.join(' ');
     const dispatched = await dispatchCommand(command, {
+      schedule: async () => this.scheduleHandlers?.handleCommand(userId, input),
       start: () => this.getCoreHandlers().handleStartCommand(userId, user),
       help: () => this.getCoreHandlers().handleHelpCommand(userId),
       task: async () => {
@@ -570,6 +580,10 @@ class SelfControlBot {
   }
 
   async handleQuickCallback(userId: number, data: string): Promise<void> {
+    if (data.startsWith('schedule:') && this.scheduleHandlers) {
+      await this.scheduleHandlers.handleCallback(userId, data);
+      return;
+    }
     if (data.startsWith('main_violation:')) {
       const [, decision, decisionToken, extra] = data.split(':');
       await this.handleMainViolationDecision(userId, decision ?? '', extra === undefined ? decisionToken : undefined);

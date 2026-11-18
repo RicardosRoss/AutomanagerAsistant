@@ -6,6 +6,7 @@ export interface CommandDefinition {
 }
 
 export const COMMAND_REGISTRY = {
+  schedule: { handler: 'schedule', requiresPrivateChat: true, acceptsArguments: true, recoveryCommand: 'schedule' },
   start: { handler: 'start', requiresPrivateChat: true, acceptsArguments: false, recoveryCommand: 'start' },
   help: { handler: 'help', requiresPrivateChat: true, acceptsArguments: false, recoveryCommand: 'help' },
   task: { handler: 'task', requiresPrivateChat: true, acceptsArguments: true, recoveryCommand: 'status' },
