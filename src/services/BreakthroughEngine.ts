@@ -117,7 +117,9 @@ function resolveBreakthroughMethodId(currentRealmId: RealmId, selectedBreakthrou
   return selectedBreakthroughMethodId ?? getDefaultBreakthroughMethodId(currentRealmId);
 }
 
-function resolveAttemptKind(input: ResolveBreakthroughAttemptInput | EvaluateBreakthroughReadinessInput): BreakthroughAttemptKind {
+function resolveAttemptKind(
+  input: ResolveBreakthroughAttemptInput | EvaluateBreakthroughReadinessInput
+): BreakthroughAttemptKind {
   if (input.attemptKind) {
     return input.attemptKind;
   }
@@ -157,10 +159,7 @@ function buildFailedGateSequence(
   return ids.map((id, index) => ({ id, passed: index >= 0 && index < failedIndex }));
 }
 
-function countAvailableItems(
-  inventory: InventoryInstance[],
-  definitionId: string
-) {
+function countAvailableItems(inventory: InventoryInstance[], definitionId: string) {
   return inventory
     .filter((item) => item.definitionId === definitionId && !item.used)
     .reduce((sum, item) => sum + item.stackCount, 0);
@@ -168,16 +167,14 @@ function countAvailableItems(
 
 function resolveTargetPowerOrdinal(knownDivinePowerIds: string[]) {
   const ordinal = knownDivinePowerIds.length + 1;
-  return ordinal >= 2 && ordinal <= 5 ? ordinal as 2 | 3 | 4 | 5 : null;
+  return ordinal >= 2 && ordinal <= 5 ? (ordinal as 2 | 3 | 4 | 5) : null;
 }
 
 function evaluateZifuDivinePowerReadiness(input: EvaluateBreakthroughReadinessInput): BreakthroughReadinessResult {
   const missing: string[] = [];
   const knownDivinePowerIds = input.knownDivinePowerIds ?? [];
   const targetPowerOrdinal = resolveTargetPowerOrdinal(knownDivinePowerIds);
-  const divinePowerRequirement = targetPowerOrdinal
-    ? getDivinePowerBreakthroughRequirement(targetPowerOrdinal)
-    : null;
+  const divinePowerRequirement = targetPowerOrdinal ? getDivinePowerBreakthroughRequirement(targetPowerOrdinal) : null;
   const targetPowerId = input.branchChoice ?? null;
   const targetPowerEntry = targetPowerId ? getDivinePowerRegistryEntry(targetPowerId) : null;
   const mainMethod = getMainMethodById(input.mainMethodId);
@@ -190,15 +187,12 @@ function evaluateZifuDivinePowerReadiness(input: EvaluateBreakthroughReadinessIn
   if (!divinePowerRequirement) missing.push('divinePowerBreakthroughRequirement');
   if (!targetPowerId) missing.push('branchChoice');
   if (!targetPowerEntry) missing.push('branchChoice');
-  if (
-    targetPowerId
-    && !mainMethod.zifuPowerCoverage?.candidatePowerIds.includes(targetPowerId)
-  ) {
+  if (targetPowerId && !mainMethod.zifuPowerCoverage?.candidatePowerIds.includes(targetPowerId)) {
     missing.push('branchChoice');
   }
   if (
-    targetPowerEntry?.zifuAcquisition
-    && knownDivinePowerIds.length < targetPowerEntry.zifuAcquisition.minExistingPowerCount
+    targetPowerEntry?.zifuAcquisition &&
+    knownDivinePowerIds.length < targetPowerEntry.zifuAcquisition.minExistingPowerCount
   ) {
     missing.push('minExistingPowerCount');
   }
@@ -301,9 +295,7 @@ export function evaluateBreakthroughReadiness(input: EvaluateBreakthroughReadine
   const breakthroughMethodId = resolveBreakthroughMethodId(input.currentRealmId, input.selectedBreakthroughMethodId);
   const breakthroughMethod = breakthroughMethodId ? getBreakthroughMethodById(breakthroughMethodId) : null;
   const incompatibleMethod =
-    !breakthroughMethod
-    || !expectedTransition
-    || breakthroughMethod.applicableTransition !== expectedTransition;
+    !breakthroughMethod || !expectedTransition || breakthroughMethod.applicableTransition !== expectedTransition;
   if (incompatibleMethod) {
     missing.push('selectedBreakthroughMethodId');
   } else {
@@ -311,29 +303,26 @@ export function evaluateBreakthroughReadiness(input: EvaluateBreakthroughReadine
     const normalizedMainDaoTrack = normalizeMainDaoTrack(input.mainDaoTrack);
     const specializedMainDaoTrack: SpecializedLineageId | null = isUniversalDaoTrack(normalizedMainDaoTrack)
       ? null
-      : normalizedMainDaoTrack as SpecializedLineageId;
+      : (normalizedMainDaoTrack as SpecializedLineageId);
     const mainMethod = getMainMethodById(input.mainMethodId);
 
     if (compatibility?.requiresFoundation && (!input.foundationId || input.foundationId === 'foundation.unshaped')) {
       missing.push('foundationId');
     }
     if (
-      compatibility?.allowedLineages
-      && (!specializedMainDaoTrack || !compatibility.allowedLineages.includes(specializedMainDaoTrack))
+      compatibility?.allowedLineages &&
+      (!specializedMainDaoTrack || !compatibility.allowedLineages.includes(specializedMainDaoTrack))
     ) {
       missing.push('mainDaoTrack');
     }
     if (
-      compatibility?.excludedLineages
-      && specializedMainDaoTrack
-      && compatibility.excludedLineages.includes(specializedMainDaoTrack)
+      compatibility?.excludedLineages &&
+      specializedMainDaoTrack &&
+      compatibility.excludedLineages.includes(specializedMainDaoTrack)
     ) {
       missing.push('mainDaoTrack');
     }
-    if (
-      compatibility?.minMethodGrade
-      && mainMethod.grade < compatibility.minMethodGrade
-    ) {
+    if (compatibility?.minMethodGrade && mainMethod.grade < compatibility.minMethodGrade) {
       missing.push('mainMethodGrade');
     }
     for (const requiredPowerId of compatibility?.requiredKnownPowerIds ?? []) {
@@ -468,10 +457,10 @@ export function resolveBreakthroughAttempt(input: ResolveBreakthroughAttemptInpu
       };
     }
 
-    const { updatedInventory, consumedDefinitionIds } = consumeRequiredItems(
-      input.inventory,
-      [...divinePowerRequirement.requiredItems, ...breakthroughMethod.requiredItems]
-    );
+    const { updatedInventory, consumedDefinitionIds } = consumeRequiredItems(input.inventory, [
+      ...divinePowerRequirement.requiredItems,
+      ...breakthroughMethod.requiredItems
+    ]);
     const updatedKnownDivinePowerIds = [...input.knownDivinePowerIds];
     if (!updatedKnownDivinePowerIds.includes(targetDivinePowerId)) {
       updatedKnownDivinePowerIds.push(targetDivinePowerId);
@@ -537,9 +526,10 @@ export function resolveBreakthroughAttempt(input: ResolveBreakthroughAttemptInpu
 
   const breakthroughMethodId = resolveBreakthroughMethodId(input.currentRealmId, input.selectedBreakthroughMethodId);
   const breakthroughMethod = breakthroughMethodId ? getBreakthroughMethodById(breakthroughMethodId) : null;
-  const targetDivinePowerId = attemptKind === 'realm_zhuji_to_zifu' && input.currentRealmId === 'realm.zhuji'
-    ? resolveFirstDivinePowerFromFoundation(input.foundationId ?? '')
-    : null;
+  const targetDivinePowerId =
+    attemptKind === 'realm_zhuji_to_zifu' && input.currentRealmId === 'realm.zhuji'
+      ? resolveFirstDivinePowerFromFoundation(input.foundationId ?? '')
+      : null;
   if (attemptKind === 'realm_zhuji_to_zifu' && input.currentRealmId === 'realm.zhuji' && !targetDivinePowerId) {
     return {
       success: false,
@@ -558,10 +548,10 @@ export function resolveBreakthroughAttempt(input: ResolveBreakthroughAttemptInpu
     };
   }
   const methodRequiredItems = breakthroughMethod?.requiredItems ?? [];
-  const { updatedInventory, consumedDefinitionIds } = consumeRequiredItems(
-    input.inventory,
-    [...requirement.requiredItems, ...methodRequiredItems]
-  );
+  const { updatedInventory, consumedDefinitionIds } = consumeRequiredItems(input.inventory, [
+    ...requirement.requiredItems,
+    ...methodRequiredItems
+  ]);
   const updatedKnownDivinePowerIds = [...input.knownDivinePowerIds];
   const sideEffectsApplied = [...(breakthroughMethod?.sideEffects ?? [])];
   const bonusOutcomeIds = [...(breakthroughMethod?.bonusOutcomeIds ?? [])];
@@ -573,9 +563,9 @@ export function resolveBreakthroughAttempt(input: ResolveBreakthroughAttemptInpu
     'enter_taixu'
   ];
   const forcedCrossIllusionFailure =
-    attemptKind === 'realm_zhuji_to_zifu'
-    && input.currentRealmId === 'realm.zhuji'
-    && input.hardConditionFlags?.['gate.cross_illusion.force_fail'] === true;
+    attemptKind === 'realm_zhuji_to_zifu' &&
+    input.currentRealmId === 'realm.zhuji' &&
+    input.hardConditionFlags?.['gate.cross_illusion.force_fail'] === true;
 
   if (forcedCrossIllusionFailure) {
     const failedGateId: BreakthroughGateResolution['id'] = 'cross_illusion';
@@ -649,9 +639,10 @@ export function resolveBreakthroughAttempt(input: ResolveBreakthroughAttemptInpu
       attemptKind,
       methodId: breakthroughMethodId ?? null,
       targetDivinePowerId,
-      gates: attemptKind === 'realm_zhuji_to_zifu' && input.currentRealmId === 'realm.zhuji'
-        ? buildSuccessfulGates(zhujiToZifuGateIds)
-        : [],
+      gates:
+        attemptKind === 'realm_zhuji_to_zifu' && input.currentRealmId === 'realm.zhuji'
+          ? buildSuccessfulGates(zhujiToZifuGateIds)
+          : [],
       failedGateId: null,
       powerLossApplied: 0,
       attainmentLossApplied: 0,

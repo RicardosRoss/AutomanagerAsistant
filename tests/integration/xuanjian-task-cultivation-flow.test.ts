@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { TaskChain, User } from '../../src/models/index.js';
 import CultivationService from '../../src/services/CultivationService.js';
 import TaskService from '../../src/services/TaskService.js';
+import type { CultivationReward } from '../../src/types/services.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from '../../src/types/taskDefaults.js';
 
 async function backdateTask(taskId: string, minutesAgo: number): Promise<void> {
@@ -13,6 +14,17 @@ async function backdateTask(taskId: string, minutesAgo: number): Promise<void> {
       }
     }
   );
+}
+
+async function completeAndRecover(service: TaskService, userId: number, taskId: string, success = true) {
+  const core = await service.completeTask(userId, taskId, success);
+  expect(core.cultivationReward).toBeNull();
+  expect(core.rewardPending).toBe(success);
+  await service.recoverPendingRewards(userId);
+  const chain = (await TaskChain.findOne({ userId, 'tasks.taskId': taskId }))!;
+  const task = chain.tasks.find(entry => entry.taskId === taskId)!;
+  const user = (await User.findOne({ userId }))!;
+  return { ...core, user, task, cultivationReward: task.rewardSnapshot as CultivationReward | undefined };
 }
 
 describe('玄鉴主循环集成测试', () => {
@@ -49,7 +61,7 @@ describe('玄鉴主循环集成测试', () => {
     expect(created.task.duration).toBe(DEFAULT_TASK_DURATION_MINUTES);
 
     await backdateTask(created.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const persistedUser = await User.findOne({ userId });
 
     expect(completed.wasChainBroken).toBe(false);
@@ -98,7 +110,7 @@ describe('玄鉴主循环集成测试', () => {
     expect(created.task.duration).toBe(DEFAULT_TASK_DURATION_MINUTES);
 
     await backdateTask(created.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const persistedUser = await User.findOne({ userId });
 
     expect(completed.cultivationReward).not.toBeNull();
@@ -146,7 +158,7 @@ describe('玄鉴主循环集成测试', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.15);
 
     await backdateTask(created.task.taskId, 60);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.cultivationReward?.encounter?.type).toBe('offer');
@@ -227,7 +239,9 @@ describe('玄鉴主循环集成测试', () => {
 
     expect(inventoryDefinitionIds).toContain('manual.art.returning_origin_shield');
     expect(refreshed?.cultivation.canonical.state.knownBattleArtIds).not.toContain('art.returning_origin_shield');
-    expect(refreshed?.cultivation.canonical.state.battleLoadout.equippedBattleArtIds).not.toContain('art.returning_origin_shield');
+    expect(refreshed?.cultivation.canonical.state.battleLoadout.equippedBattleArtIds).not.toContain(
+      'art.returning_origin_shield'
+    );
   });
 
   test('60 分钟专注结算后应按新修为自动推进胎息小阶', async () => {
@@ -245,7 +259,7 @@ describe('玄鉴主循环集成测试', () => {
 
     const created = await taskService.createTask(userId, 'phase-b focus');
     await backdateTask(created.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
-    await taskService.completeTask(userId, created.task.taskId, true);
+    await completeAndRecover(taskService, userId, created.task.taskId, true);
 
     const refreshed = await User.findOne({ userId }).lean();
     expect(refreshed?.cultivation.canonical.state.currentPower).toBe(20);
@@ -255,12 +269,9 @@ describe('玄鉴主循环集成测试', () => {
   test('combat encounter should resolve through awardCultivation and persist combat history', async () => {
     const userId = 602010;
     const created = await taskService.createTask(userId, 'phase-c combat');
-    vi.spyOn(Math, 'random')
-      .mockReturnValueOnce(0.98)
-      .mockReturnValueOnce(0.18)
-      .mockReturnValue(0.18);
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0.98).mockReturnValueOnce(0.18).mockReturnValue(0.18);
     await backdateTask(created.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.cultivationReward?.encounter?.type).toBe('combat');
@@ -279,10 +290,7 @@ describe('玄鉴主循环集成测试', () => {
     await cultivationService.setDevEncounterScript(firstUserId, 'combat', 1);
     await cultivationService.setDevEncounterScript(secondUserId, 'combat', 1);
 
-    const randomRolls = [
-      0.05, 0.12, 0.18,
-      0.05, 0.62, 0.18
-    ];
+    const randomRolls = [0.05, 0.12, 0.18, 0.05, 0.62, 0.18];
     vi.spyOn(Math, 'random').mockImplementation(() => {
       const next = randomRolls.shift();
       if (next === undefined) {
@@ -293,8 +301,8 @@ describe('玄鉴主循环集成测试', () => {
 
     await backdateTask(firstTask.task.taskId, 1);
     await backdateTask(secondTask.task.taskId, 1);
-    const firstCompleted = await taskService.completeTask(firstUserId, firstTask.task.taskId, true);
-    const secondCompleted = await taskService.completeTask(secondUserId, secondTask.task.taskId, true);
+    const firstCompleted = await completeAndRecover(taskService, firstUserId, firstTask.task.taskId, true);
+    const secondCompleted = await completeAndRecover(taskService, secondUserId, secondTask.task.taskId, true);
 
     const firstCombatSummary = firstCompleted.cultivationReward?.encounter?.combatSummary;
     const secondCombatSummary = secondCompleted.cultivationReward?.encounter?.combatSummary;
@@ -325,7 +333,7 @@ describe('玄鉴主循环集成测试', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.18);
 
     await backdateTask(created.task.taskId, 1);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.task.actualDuration).toBe(1);
@@ -359,7 +367,7 @@ describe('玄鉴主循环集成测试', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.995);
 
     await backdateTask(created.task.taskId, 1);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.task.actualDuration).toBe(1);
@@ -382,7 +390,7 @@ describe('玄鉴主循环集成测试', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.18);
 
     await backdateTask(created.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.task.actualDuration).toBe(DEFAULT_TASK_DURATION_MINUTES);
@@ -752,7 +760,7 @@ describe('玄鉴主循环集成测试', () => {
 
     const created = await taskService.createTask(userId, 'injury recovery', 90);
     await backdateTask(created.task.taskId, 90);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.cultivationReward?.spiritualPower).toBe(1);
@@ -781,7 +789,7 @@ describe('玄鉴主循环集成测试', () => {
 
     const created = await taskService.createTask(userId, 'short-no-heal', 30);
     await backdateTask(created.task.taskId, 30);
-    const completed = await taskService.completeTask(userId, created.task.taskId, true);
+    const completed = await completeAndRecover(taskService, userId, created.task.taskId, true);
     const refreshed = await User.findOne({ userId }).lean();
 
     expect(completed.cultivationReward?.spiritualPower).toBe(0);

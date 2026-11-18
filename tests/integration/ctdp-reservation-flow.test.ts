@@ -110,14 +110,16 @@ describe('CTDP 预约兑现协议', () => {
     expect(failResult.mainChain.nodes).toHaveLength(0);
   });
 
-  test('预约到期后无操作，辅助链应记录为过期', async () => {
+  test('预约到期后无操作，辅助链保留过期预约等待判例决定', async () => {
     const reservationId = 'res_test_expire';
     await ctdpService.createReservation(userId, '过期测试', 25, reservationId);
+    await AuxChain.updateOne({ userId }, { $set: { 'pendingReservation.deadlineAt': new Date(Date.now() - 1000) } });
 
     const result = await ctdpService.expireReservation(reservationId);
 
     expect(result.expired).toBe(true);
-    expect(result.auxChain?.pendingReservation).toBeUndefined();
+    expect(result.auxChain?.pendingReservation?.status).toBe('expired');
+    expect(result.auxChain?.pendingDecision?.behaviorKey).toBe('missed_start');
   });
 
   test('同一用户同时只能有一个活跃预约', async () => {
@@ -368,13 +370,22 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     const delayedAt = Date.now();
 
     await handlers.handleDelayReservationCallback(userId, `delay_reservation_5:${reservationId}`);
+    expect(mockQueueService.rescheduleReservation).not.toHaveBeenCalled();
+    const requested = await AuxChain.findOne({ userId });
+    expect(requested?.pendingDecision?.behaviorKey).toBe('delay_reservation_5');
+    await handlers.handleAuxiliaryDecisionCallback(
+      userId, `aux_decide:allow_forever:${requested?.pendingDecision?.decisionToken}`
+    );
 
     const afterDelay = await AuxChain.findOne({
       userId,
       'pendingReservation.reservationId': reservationId
     });
 
-    expect(mockQueueService.rescheduleReservation).toHaveBeenCalledWith(reservationId, 5 * 60 * 1000);
+    const [queuedId, remainingDelay] = mockQueueService.rescheduleReservation.mock.calls[0]!;
+    expect(queuedId).toBe(reservationId);
+    expect(remainingDelay).toBeGreaterThan(4 * 60 * 1000);
+    expect(remainingDelay).toBeLessThanOrEqual(5 * 60 * 1000);
     expect(afterDelay?.pendingReservation?.deadlineAt?.getTime() ?? 0).toBeGreaterThanOrEqual(
       delayedAt + 4 * 60 * 1000
     );
@@ -432,6 +443,12 @@ describe('预约回调 handleStartReservedCallback — CTDP 集成验证', () =>
     await ctdpService.createReservation(userId, '取消测试', 30, reservationId);
 
     await handlers.handleCancelReservationCallback(userId, `cancel_reservation_${reservationId}`);
+    const requested = await AuxChain.findOne({ userId });
+    expect(requested?.pendingReservation).toBeDefined();
+    expect(requested?.pendingDecision?.behaviorKey).toBe('cancel_reservation');
+    await handlers.handleAuxiliaryDecisionCallback(
+      userId, `aux_decide:allow_forever:${requested?.pendingDecision?.decisionToken}`
+    );
 
     const auxChain = await AuxChain.findOne({ userId, status: 'active' });
     expect(auxChain?.pendingReservation).toBeUndefined();

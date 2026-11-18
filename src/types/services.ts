@@ -160,9 +160,11 @@ export interface CultivationStatusResult {
   knownDivinePowerCount: number;
   canonicalState?: PlayerCultivationState;
   activeBuff?: string | null;
+  pendingFocusRewardCount?: number;
 }
 
 export interface DivinationCastResult {
+  historyPending?: boolean;
   roll: number;
   gua: BaguaDivination;
   betAmount: number;
@@ -211,7 +213,7 @@ export interface QueueServiceDependency {
 }
 
 export interface CultivationServiceDependency {
-  awardCultivation(userId: number, duration: number): Promise<CultivationReward>;
+  awardCultivation(userId: number, duration: number, taskId?: string): Promise<CultivationReward>;
 }
 
 export interface CreateTaskResult {
@@ -226,6 +228,7 @@ export interface CompleteTaskResult {
   user: UserDocument;
   wasChainBroken: boolean;
   cultivationReward: CultivationReward | null;
+  rewardPending?: boolean;
 }
 
 export interface GetUserStatusOptions {
@@ -236,6 +239,8 @@ export interface UserStatusResult {
   user: UserDocument | null;
   activeChain: TaskChainDocument | null;
   currentTask: ITask | undefined;
+  pendingSettlementCount?: number;
+  pendingRewardCount?: number;
   todayStats?: DailyStatsDocument;
   isActive: boolean;
   stats: UserDocument['stats'] | Record<string, never>;
@@ -277,7 +282,9 @@ export interface CultivationLeaderboardEntry extends UserDocument {
   cultivation: UserDocument['cultivation'];
 }
 
-export interface DivinationStatsResult extends IDivinationHistoryStats {}
+export interface DivinationStatsResult extends IDivinationHistoryStats { pendingSyncCount?: number; }
+
+export type DivinationHistoryResult = DivinationHistoryDocument[] & { pendingSyncCount?: number };
 
 export interface CultivationServiceContract {
   getCultivationStatus(userId: number): Promise<CultivationStatusResult>;
@@ -335,6 +342,8 @@ export interface StartMainTaskInput {
   duration: number;
   isReserved?: boolean;
   reservationId?: string;
+  submissionToken?: string;
+  reservationStartToken?: string;
 }
 
 export interface StartMainTaskResult {
@@ -355,4 +364,5 @@ export interface CompleteMainTaskResult {
   user: UserDocument;
   wasChainBroken: boolean;
   cultivationReward: CultivationReward | null;
+  rewardPending?: boolean;
 }

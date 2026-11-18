@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import { pathToFileURL } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import SelfControlBot from './bot.js';
 import databaseConnection from './database/connection.js';
@@ -6,6 +7,8 @@ import redisConnection from './config/redis.js';
 import ContentNameResolver from './services/ContentNameResolver.js';
 import config from '../config/index.js';
 import logger from './utils/logger.js';
+import models from './models/index.js';
+import type { QueueHealthCheck } from './types/services.js';
 
 class SelfControlApp {
   app: express.Express;
@@ -20,6 +23,8 @@ class SelfControlApp {
 
   server: Server | null;
 
+  readonly startedAt: string;
+
   constructor() {
     this.app = express();
     this.bot = null;
@@ -27,6 +32,7 @@ class SelfControlApp {
     this.redis = redisConnection;
     this.contentNameResolver = new ContentNameResolver();
     this.server = null;
+    this.startedAt = new Date().toISOString();
   }
 
   async initialize(): Promise<void> {
@@ -37,13 +43,13 @@ class SelfControlApp {
         nodeVersion: process.version
       });
 
+      this.setupGracefulShutdown();
+      await this.setupExpress();
+      await this.startServer();
       await this.connectDatabase();
       await this.connectRedis();
       await this.warmupContentNames();
-      await this.setupExpress();
       await this.startBot();
-      await this.startServer();
-      this.setupGracefulShutdown();
 
       logger.info('✅ 自控力助手启动完成', {
         port: config.app.port,
@@ -62,6 +68,7 @@ class SelfControlApp {
   async connectDatabase(): Promise<void> {
     try {
       await this.db.connect();
+      await Promise.all(Object.values(models).map((model) => model.init()));
       logger.info('✅ 数据库连接成功');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -93,20 +100,30 @@ class SelfControlApp {
   }
 
   async setupExpress(): Promise<void> {
-    this.app.use(express.json());
-    this.app.use(express.urlencoded({ extended: true }));
 
     this.app.get('/health', (_req, res) => {
-      res.json({
-        status: 'healthy',
+      const ready = this.db.isConnected && this.redis.isConnected && Boolean(this.bot?.isRunning);
+      res.status(ready ? 200 : 503).json({
+        status: ready ? 'healthy' : 'not_ready',
+        bot: this.bot?.isRunning ? 'running' : 'starting',
         timestamp: new Date().toISOString(),
         version: config.app.version,
         environment: config.app.environment,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
         database: this.db.isConnected ? 'connected' : 'disconnected',
-        redis: this.redis.isConnected ? 'connected' : 'disconnected'
+        redis: this.redis.isConnected ? 'connected' : 'disconnected',
+        queue: this.bot?.queueService?.isInitialized ? 'initialized' : 'uninitialized',
+        buildSha: process.env.BUILD_SHA ?? process.env.GIT_SHA ?? 'unknown',
+        startedAt: this.startedAt
       });
+    });
+
+    this.app.get('/live', (_req, res) => res.json({ status: 'alive' }));
+
+    this.app.get('/ready', async (_req, res) => {
+      const readiness = await this.getReadinessSnapshot();
+      res.status(readiness.ready ? 200 : 503).json(readiness.body);
     });
 
     this.app.get('/api/info', (_req, res) => {
@@ -162,15 +179,11 @@ class SelfControlApp {
 
   async startServer(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-      this.server = this.app.listen(config.app.port, (error?: Error) => {
-        if (error) {
-          logger.error('HTTP服务器启动失败', { error: error.message });
-          reject(error);
-        } else {
-          logger.info(`✅ HTTP服务器启动成功，端口: ${config.app.port}`);
-          resolve();
-        }
+      this.server = this.app.listen(config.app.port, () => {
+        logger.info(`✅ HTTP服务器启动成功，端口: ${config.app.port}`);
+        resolve();
       });
+      this.server.once('error', reject);
     });
   }
 
@@ -262,7 +275,9 @@ class SelfControlApp {
         version: config.app.version,
         environment: config.app.environment,
         uptime: process.uptime(),
-        memory: process.memoryUsage()
+        memory: process.memoryUsage(),
+        buildSha: process.env.BUILD_SHA ?? process.env.GIT_SHA ?? 'unknown',
+        startedAt: this.startedAt
       },
       database: {
         connected: this.db.isConnected,
@@ -278,11 +293,47 @@ class SelfControlApp {
       }
     };
   }
+
+  private async getReadinessSnapshot(): Promise<{ ready: boolean; body: Record<string, unknown> }> {
+    const queueService = this.bot?.queueService;
+    let queue: QueueHealthCheck | { status: 'unknown' | 'unhealthy'; message: string; error?: string };
+    if (!queueService) {
+      queue = { status: this.bot?.isRunning ? 'unknown' : 'unhealthy', message: 'QueueService 未初始化' };
+    } else {
+      try {
+        queue = await queueService.healthCheck();
+      } catch (error) {
+        queue = {
+          status: 'unhealthy',
+          message: 'QueueService 健康检查失败',
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+    const redisRoles = this.redis.getConnectionStatus();
+    const ready = this.db.isConnected && this.redis.isConnected && Boolean(this.bot?.isRunning) &&
+      queue.status === 'healthy';
+
+    return {
+      ready,
+      body: {
+        status: ready ? 'ready' : 'not_ready',
+        bot: this.bot?.isRunning ? 'running' : 'starting',
+        database: this.db.isConnected ? 'connected' : 'disconnected',
+        redis: this.redis.isConnected ? 'connected' : 'disconnected',
+        redisRoles,
+        queue,
+        buildSha: process.env.BUILD_SHA ?? process.env.GIT_SHA ?? 'unknown',
+        startedAt: this.startedAt,
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
 }
 
 const app = new SelfControlApp();
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   app.initialize().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     logger.error('应用启动失败', { error: message });

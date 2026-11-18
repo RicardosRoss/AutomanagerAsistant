@@ -12,10 +12,33 @@ import type {
 const taskSchema = new Schema<ITask>(
   {
     taskId: { type: String, required: true },
+    submissionToken: String,
+    mainChainId: String,
+    creationState: { type: String, enum: ['initializing', 'ready', 'rolling_back'] },
     description: { type: String, required: true },
     duration: { type: Number, required: true },
     startTime: { type: Date, required: true },
     endTime: Date,
+    confirmedAt: Date,
+    elapsedDuration: Number,
+    settlementStatus: {
+      type: String,
+      enum: ['pending', 'processing', 'needs_retry', 'settled']
+    },
+    settlementError: String,
+    coreProtocolVersion: { type: Number, enum: [1] },
+    settlementLeaseUntil: Date,
+    settlementToken: String,
+    rewardApplied: { type: Boolean, default: false },
+    rewardProtocolVersion: { type: Number, enum: [1] },
+    rewardStatus: { type: String, enum: ['pending', 'processing', 'needs_retry', 'settled'] },
+    rewardToken: String,
+    rewardLeaseUntil: Date,
+    rewardError: String,
+    rewardSnapshot: { type: Schema.Types.Mixed },
+    chainStatsApplied: { type: Boolean, default: false },
+    userStatsApplied: { type: Boolean, default: false },
+    dailyStatsApplied: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
@@ -72,8 +95,18 @@ const taskChainSchema = new Schema<ITaskChain, ITaskChainModel, ITaskChainMethod
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
+  }
+);
+
+taskChainSchema.index(
+  { userId: 1 },
+  {
+    name: 'active_taskchain_per_user',
+    unique: true,
+    partialFilterExpression: { status: 'active' }
   }
 );
 
@@ -101,11 +134,7 @@ taskChainSchema.virtual('isActive').get(function getIsActive(this: TaskChainDocu
   return this.status === 'active' && this.tasks.some((task) => task.status === 'running');
 });
 
-taskChainSchema.methods.breakChain = function breakChain(
-  this: TaskChainDocument,
-  reason = '任务失败',
-  taskId = null
-) {
+taskChainSchema.methods.breakChain = function breakChain(this: TaskChainDocument, reason = '任务失败', taskId = null) {
   this.status = 'broken';
   this.totalTasks = 0;
   this.completedTasks = 0;
@@ -288,10 +317,7 @@ taskChainSchema.index({ status: 1, updatedAt: -1 });
 taskChainSchema.index({ completedTasks: -1 });
 taskChainSchema.index({ totalMinutes: -1 });
 
-taskChainSchema.pre('save', function preSave(
-  this: TaskChainDocument,
-  next: CallbackWithoutResultAndOptionalError
-) {
+taskChainSchema.pre('save', function preSave(this: TaskChainDocument, next: CallbackWithoutResultAndOptionalError) {
   if (this.status === 'broken' && (this.totalTasks !== 0 || this.completedTasks !== 0)) {
     console.warn(`⚠️  神圣座位原理违规检测: 链条 ${this.chainId} 破链状态下计数不为零，自动修正`);
     this.totalTasks = 0;

@@ -178,14 +178,62 @@ function materializeEncounterResult(
  *   - 小凶~大凶(坎/艮/坤): 奇遇减少, 掉率降低
  */
 const DIVINATION_BUFF_TABLE: Record<number, DivinationBuff> = {
-  8: { encounterBonus: -0.15, qualityBonus: 0.05, expiresAfterNextFocus: true, label: '大吉加持', description: '下次专注奇遇概率+15%，掉率+5%' },
-  7: { encounterBonus: -0.10, qualityBonus: 0.03, expiresAfterNextFocus: true, label: '吉运', description: '下次专注奇遇概率+10%，掉率+3%' },
-  6: { encounterBonus: -0.05, qualityBonus: 0, expiresAfterNextFocus: true, label: '小吉', description: '下次专注奇遇概率+5%' },
-  5: { encounterBonus: 0, qualityBonus: 0, expiresAfterNextFocus: true, label: '平卦', description: '下次专注无额外影响' },
-  4: { encounterBonus: 0, qualityBonus: 0, expiresAfterNextFocus: true, label: '平卦', description: '下次专注无额外影响' },
-  3: { encounterBonus: 0.05, qualityBonus: -0.02, expiresAfterNextFocus: true, label: '小凶', description: '下次专注奇遇概率-5%' },
-  2: { encounterBonus: 0.10, qualityBonus: -0.03, expiresAfterNextFocus: true, label: '凶兆', description: '下次专注奇遇概率-10%' },
-  1: { encounterBonus: 0.15, qualityBonus: -0.05, expiresAfterNextFocus: true, label: '大凶', description: '下次专注奇遇概率-15%' }
+  8: {
+    encounterBonus: -0.15,
+    qualityBonus: 0.05,
+    expiresAfterNextFocus: true,
+    label: '大吉加持',
+    description: '下次专注奇遇概率+15%，掉率+5%'
+  },
+  7: {
+    encounterBonus: -0.1,
+    qualityBonus: 0.03,
+    expiresAfterNextFocus: true,
+    label: '吉运',
+    description: '下次专注奇遇概率+10%，掉率+3%'
+  },
+  6: {
+    encounterBonus: -0.05,
+    qualityBonus: 0,
+    expiresAfterNextFocus: true,
+    label: '小吉',
+    description: '下次专注奇遇概率+5%'
+  },
+  5: {
+    encounterBonus: 0,
+    qualityBonus: 0,
+    expiresAfterNextFocus: true,
+    label: '平卦',
+    description: '下次专注无额外影响'
+  },
+  4: {
+    encounterBonus: 0,
+    qualityBonus: 0,
+    expiresAfterNextFocus: true,
+    label: '平卦',
+    description: '下次专注无额外影响'
+  },
+  3: {
+    encounterBonus: 0.05,
+    qualityBonus: -0.02,
+    expiresAfterNextFocus: true,
+    label: '小凶',
+    description: '下次专注奇遇概率-5%'
+  },
+  2: {
+    encounterBonus: 0.1,
+    qualityBonus: -0.03,
+    expiresAfterNextFocus: true,
+    label: '凶兆',
+    description: '下次专注奇遇概率-10%'
+  },
+  1: {
+    encounterBonus: 0.15,
+    qualityBonus: -0.05,
+    expiresAfterNextFocus: true,
+    label: '大凶',
+    description: '下次专注奇遇概率-15%'
+  }
 };
 
 export function getDivinationBuff(roll: number): DivinationBuff {
@@ -219,9 +267,9 @@ export function rollFocusEncounter(
       return buildOfferResult(realmId, rng);
     }
 
-    const forcedCandidates = FOCUS_ENCOUNTER_TABLE
-      .map((entry) => entry.result)
-      .filter((result) => result.type === forcedEncounterType);
+    const forcedCandidates = FOCUS_ENCOUNTER_TABLE.map((entry) => entry.result).filter(
+      (result) => result.type === forcedEncounterType
+    );
 
     const selectedForced = forcedCandidates[Math.floor(rng() * forcedCandidates.length)] ?? forcedCandidates[0];
     const fallback = selectedForced ?? FOCUS_ENCOUNTER_TABLE[0]!.result;
@@ -236,8 +284,10 @@ export function rollFocusEncounter(
   // Negative encounterBonus means MORE encounters (threshold goes down)
   const encounterShift = buff?.encounterBonus ?? 0;
   const qualityShift = buff?.qualityBonus ?? 0;
-  const stonesLossThreshold = FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.stones_loss')?.threshold ?? 0.93;
-  const combatThreshold = FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.combat_trial')?.threshold ?? 0.995;
+  const stonesLossThreshold =
+    FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.stones_loss')?.threshold ?? 0.93;
+  const combatThreshold =
+    FOCUS_ENCOUNTER_TABLE.find((entry) => entry.id === 'encounter.combat_trial')?.threshold ?? 0.995;
 
   const adjustedTable = FOCUS_ENCOUNTER_TABLE.map((entry) => {
     if (entry.id === 'encounter.none') {
@@ -274,9 +324,9 @@ export function resolveFocusReward(input: {
   const methodLineageTag = 'lineageTag' in method ? method.lineageTag : undefined;
   const normalizedMethodLineage = methodLineageTag ? normalizeMainDaoTrack(methodLineageTag) : null;
   const shouldApplyLineageSpecialization =
-    isRealmAtLeast(input.state.realmId, 'realm.zhuji')
-    && !isUniversalDaoTrack(normalizedMainDaoTrack)
-    && normalizedMethodLineage === normalizedMainDaoTrack;
+    isRealmAtLeast(input.state.realmId, 'realm.zhuji') &&
+    !isUniversalDaoTrack(normalizedMainDaoTrack) &&
+    normalizedMethodLineage === normalizedMainDaoTrack;
   const sameSchoolMultiplier = shouldApplyLineageSpecialization
     ? getMainLineageMultiplier(input.state.cultivationAttainment)
     : 1;

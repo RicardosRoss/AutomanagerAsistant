@@ -55,7 +55,11 @@ function projectBattleArt(document: IContentDefinition): {
   if (!['attack', 'guard', 'movement', 'support'].includes(category)) {
     throw new Error(`Invalid content definition ${document.definitionId}: category`);
   }
-  const actionType = requireString(balance, 'actionType', document.definitionId) as RuntimeReadyBattleArtProfile['actionProfile']['actionType'];
+  const actionType = requireString(
+    balance,
+    'actionType',
+    document.definitionId
+  ) as RuntimeReadyBattleArtProfile['actionProfile']['actionType'];
   if (!['attack', 'guard', 'movement', 'support'].includes(actionType)) {
     throw new Error(`Invalid content definition ${document.definitionId}: actionType`);
   }
@@ -66,9 +70,8 @@ function projectBattleArt(document: IContentDefinition): {
     category,
     tags: [...document.tags],
     requiredRealmId: requireString(payload, 'requiredRealmId', document.definitionId) as RealmId,
-    requiredRealmSubStageId: typeof payload.requiredRealmSubStageId === 'string'
-      ? payload.requiredRealmSubStageId
-      : undefined
+    requiredRealmSubStageId:
+      typeof payload.requiredRealmSubStageId === 'string' ? payload.requiredRealmSubStageId : undefined
   };
 
   return {
@@ -100,7 +103,11 @@ function projectDivinePower(document: IContentDefinition): {
   if (!['burst', 'control', 'ward', 'domain'].includes(category)) {
     throw new Error(`Invalid content definition ${document.definitionId}: category`);
   }
-  const actionType = requireString(balance, 'actionType', document.definitionId) as RuntimeReadyDivinePowerProfile['actionProfile']['actionType'];
+  const actionType = requireString(
+    balance,
+    'actionType',
+    document.definitionId
+  ) as RuntimeReadyDivinePowerProfile['actionProfile']['actionType'];
   if (!['burst', 'control', 'ward', 'domain'].includes(actionType)) {
     throw new Error(`Invalid content definition ${document.definitionId}: actionType`);
   }
@@ -111,9 +118,8 @@ function projectDivinePower(document: IContentDefinition): {
     category,
     tags: [...document.tags],
     requiredRealmId: requireString(payload, 'requiredRealmId', document.definitionId) as RealmId,
-    requiredRealmSubStageId: typeof payload.requiredRealmSubStageId === 'string'
-      ? payload.requiredRealmSubStageId
-      : undefined
+    requiredRealmSubStageId:
+      typeof payload.requiredRealmSubStageId === 'string' ? payload.requiredRealmSubStageId : undefined
   };
 
   return {

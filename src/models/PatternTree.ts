@@ -28,6 +28,9 @@ const patternTreeSchema = new Schema<IPatternTree, IPatternTreeModel>(
     userId: { type: Number, required: true },
     treeId: { type: String, unique: true, required: true },
     nodes: [patternNodeSchema],
+    lastAddedOn: String,
+    lastAddedAt: Date,
+    executions: [{ nodeId: String, title: String, executedAt: Date, success: Boolean, removedNodeIds: [String] }],
     limits: {
       maxNewPatternsPerDay: { type: Number, default: 1 }
     }

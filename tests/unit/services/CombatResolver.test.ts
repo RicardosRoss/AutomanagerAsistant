@@ -50,7 +50,12 @@ describe('CombatResolver', () => {
       vitality: 18
     };
 
-    const result = resolveCombat({ encounterId: 'combatEncounter.taixi.roadside_wolf', player: weakened, enemy, seed: 7 });
+    const result = resolveCombat({
+      encounterId: 'combatEncounter.taixi.roadside_wolf',
+      player: weakened,
+      enemy,
+      seed: 7
+    });
     expect(result.outcome).toBe('loss');
   });
 

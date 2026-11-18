@@ -20,8 +20,8 @@ A Telegram bot that combines scientific self-control theory with a gamified cult
 
 The bot is built on three scientific self-control theories:
 
-1. **Sacred Seat Principle** - Consecutive task completions create psychological binding force. Any task failure **immediately resets all progress to zero**.
-2. **Linear Delay Principle** - A 15-minute reservation delay reduces task-start resistance by 60%.
+1. **Sacred Seat Principle** - Consecutive task completions create psychological binding force. A failed task resets the current main-chain nodes and streak; historical focus records and earned assets are preserved.
+2. **Linear Delay Principle** - A reservation signal moves the commitment away from the immediate switch; the main task must start within 15 minutes.
 3. **Precedent Principle** - Every decision becomes a precedent for future behavior (simplified to keyword classification in MVP).
 
 ### Features
@@ -55,11 +55,12 @@ The bot is built on three scientific self-control theories:
 |---------|-------------|
 | `/start` | Initialize your account |
 | `/task <description> [duration]` | Start a focus task |
-| `/reserve <description> [duration]` | Schedule a task in 15 minutes |
+| `/reserve <description> [duration]` | Commit to starting the task within 15 minutes |
 | `/status` | View current progress and active tasks |
 | `/stats` | Daily statistics |
-| `/week` | Weekly report (coming soon) |
-| `/settings` | Personal settings (coming soon) |
+| `/week` | Recent 7-day focus report |
+| `/settings` | Duration, timezone, and reminder settings |
+| `/violation <behavior>` | Main-chain precedent decision |
 | `/help` | Show all commands |
 | `/realm` | View cultivation realm and spiritual power |
 | `/divination <stones>` | Cast Bagua divination |
@@ -258,7 +259,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 机器人基于三个科学自控力理论：
 
 1. **神圣座位原理** - 连续的任务完成创造心理约束力。任何任务失败**立即将所有进度重置为零**。
-2. **线性时延原理** - 15 分钟预约延迟可降低 60% 的任务启动阻力。
+2. **线性时延原理** - 预约信号先避开立即切换，主任务必须在 15 分钟内启动；“60%”不是运行时精确指标。
 3. **下必为例原理** - 每个决策都成为未来行为的先例（MVP 版本简化为关键词分类）。
 
 ### 功能特性
@@ -292,11 +293,12 @@ MIT License - see [LICENSE](LICENSE) for details.
 |------|------|
 | `/start` | 初始化账户 |
 | `/task <描述> [时长]` | 开始专注任务 |
-| `/reserve <描述> [时长]` | 预约 15 分钟后开始任务 |
+| `/reserve <描述> [时长]` | 建立预约承诺，并在 15 分钟内开始任务 |
 | `/status` | 查看当前进度和进行中的任务 |
 | `/stats` | 今日统计 |
-| `/week` | 周报（开发中） |
-| `/settings` | 个人设置（开发中） |
+| `/week` | 最近 7 天周报 |
+| `/settings` | 默认时长、时区、过程提醒 |
+| `/violation <行为>` | 主链下必为例判定 |
 | `/help` | 显示所有命令 |
 | `/realm` | 查看修仙境界和灵力 |
 | `/divination <仙石>` | 八卦占卜 |

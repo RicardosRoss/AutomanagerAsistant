@@ -1,4 +1,4 @@
-import mongoose, { Schema } from 'mongoose';
+import mongoose, { Schema, type SchemaDefinition } from 'mongoose';
 import type {
   DivinationHistoryDocument,
   IDivinationHistory,
@@ -8,70 +8,62 @@ import type {
   IDivinationHistoryStats
 } from '../types/models.js';
 
-const divinationHistorySchema = new Schema<
-  IDivinationHistory,
-  IDivinationHistoryModel,
-  IDivinationHistoryMethods
->(
-  {
-    userId: {
-      type: Number,
-      required: true,
-      index: true
-    },
-    gameId: {
-      type: String,
-      required: true,
-      unique: true
-    },
-    betAmount: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    diceRoll: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 8
-    },
-    guaName: String,
-    guaEmoji: String,
-    meaning: String,
-    multiplier: Number,
-    result: Number,
-    stonesAfter: Number,
-    powerBefore: Number,
-    powerAfter: Number,
-    realmBefore: String,
-    realmAfter: String,
-    realmChanged: {
-      type: Boolean,
-      default: false
-    },
-    timestamp: {
-      type: Date,
-      default: Date.now,
-      index: true
-    }
+export const divinationHistoryFields: SchemaDefinition<IDivinationHistory> = {
+  userId: {
+    type: Number,
+    required: true,
+    index: true
   },
-  {
-    timestamps: true
+  gameId: {
+    type: String,
+    required: true,
+    unique: true
+  },
+  betAmount: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  diceRoll: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 8
+  },
+  guaName: String,
+  guaEmoji: String,
+  meaning: String,
+  multiplier: Number,
+  result: Number,
+  stonesAfter: Number,
+  powerBefore: Number,
+  powerAfter: Number,
+  realmBefore: String,
+  realmAfter: String,
+  realmChanged: {
+    type: Boolean,
+    default: false
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+    index: true
   }
+};
+
+const divinationHistorySchema = new Schema<IDivinationHistory, IDivinationHistoryModel, IDivinationHistoryMethods>(
+  divinationHistoryFields,
+  { timestamps: true }
 );
 
 divinationHistorySchema.index({ userId: 1, timestamp: -1 });
-divinationHistorySchema.index({ gameId: 1 });
 
 divinationHistorySchema.statics.getUserHistory = async function getUserHistory(
   this: IDivinationHistoryModel,
   userId: number,
   limit = 10
 ) {
-  return this.find({ userId })
-    .sort({ timestamp: -1 })
-    .limit(limit)
-    .exec();
+  return this.find({ userId }).sort({ timestamp: -1 }).limit(limit).exec();
 };
 
 divinationHistorySchema.statics.getUserStats = async function getUserStats(

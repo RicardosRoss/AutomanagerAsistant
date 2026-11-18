@@ -34,6 +34,8 @@ describe('BotConfig polling options', () => {
     const botConfig = new BotConfig();
     const options = botConfig.getBotOptions();
 
+    expect(options.request).toMatchObject({ timeout: 20000 });
+
     expect(options.polling).toMatchObject({
       autoStart: false,
       interval: 1000,
@@ -77,7 +79,7 @@ describe('BotConfig polling options', () => {
       expect.arrayContaining([
         expect.objectContaining({
           command: 'reserve',
-          description: '预约1小时30分钟后开始任务'
+          description: '承诺在1小时30分钟内开始任务'
         })
       ])
     );

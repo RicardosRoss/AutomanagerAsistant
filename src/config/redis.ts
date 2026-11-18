@@ -1,4 +1,5 @@
 import Redis, { type RedisClientType } from 'redis';
+import { randomUUID } from 'node:crypto';
 import config from '../../config/index.js';
 
 type RedisClient = RedisClientType;
@@ -23,7 +24,17 @@ class RedisConnection {
 
   publisher: RedisClient | null;
 
-  isConnected: boolean;
+  private connectionPromise: Promise<RedisClient> | null = null;
+
+  private disconnectPromise: Promise<void> | null = null;
+
+  private generation = 0;
+
+  private stopping = false;
+
+  private readyPublished = false;
+
+  private readonly readyListeners = new Set<() => Promise<void>>();
 
   reconnectAttempts: number;
 
@@ -35,172 +46,163 @@ class RedisConnection {
     this.client = null;
     this.subscriber = null;
     this.publisher = null;
-    this.isConnected = false;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
     this.reconnectDelay = 1000;
   }
 
-  async connect(): Promise<RedisClient> {
+  get isConnected(): boolean {
+    return !this.stopping && Boolean(this.client?.isReady && this.publisher?.isReady && this.subscriber?.isReady);
+  }
+
+  connect(): Promise<RedisClient> {
+    if (this.disconnectPromise) return this.disconnectPromise.then(() => this.connect(), () => this.connect());
+    if (this.connectionPromise) return this.connectionPromise;
+    if (this.isConnected) return Promise.resolve(this.client!);
+    this.stopping = false;
+    this.readyPublished = false;
+    const generation = ++this.generation;
+    const connecting = this.openConnections(generation).finally(() => {
+      if (this.connectionPromise === connecting) this.connectionPromise = null;
+    });
+    this.connectionPromise = connecting;
+    return connecting;
+  }
+
+  private async openConnections(generation: number): Promise<RedisClient> {
+    const created: RedisClient[] = [];
     try {
-      const redisConfig = {
-        host: config.redis.host,
-        port: config.redis.port,
-        password: config.redis.password,
-        db: config.redis.db,
-        connectTimeout: 10000
-      };
-
-      this.client = Redis.createClient({
-        socket: {
-          host: redisConfig.host,
-          port: redisConfig.port,
-          connectTimeout: redisConfig.connectTimeout
-        },
-        password: redisConfig.password,
-        database: redisConfig.db
-      });
-
-      this.publisher = Redis.createClient({
-        socket: {
-          host: redisConfig.host,
-          port: redisConfig.port
-        },
-        password: redisConfig.password,
-        database: redisConfig.db
-      });
-
-      this.subscriber = Redis.createClient({
-        socket: {
-          host: redisConfig.host,
-          port: redisConfig.port
-        },
-        password: redisConfig.password,
-        database: redisConfig.db
-      });
-
+      await this.closeClients([this.client, this.publisher, this.subscriber]);
+      if (generation !== this.generation || this.stopping) throw new Error('Redis 连接已被取消');
+      for (const role of ['main', 'publisher', 'subscriber']) {
+        created.push(Redis.createClient({
+          name: `selfcontrol:${process.pid}:${role}`,
+          socket: {
+            host: config.redis.host, port: config.redis.port, connectTimeout: 10000,
+            reconnectStrategy: (retries: number) => this.getReconnectDelay(retries)
+          },
+          password: config.redis.password,
+          database: config.redis.db,
+          disableOfflineQueue: true
+        }));
+      }
+      this.client = created[0]!;
+      this.publisher = created[1]!;
+      this.subscriber = created[2]!;
       this.setupEventListeners();
-
-      await Promise.all([
-        this.client.connect(),
-        this.publisher.connect(),
-        this.subscriber.connect()
-      ]);
-
-      this.isConnected = true;
+      await Promise.all(created.map((client) => client.connect()));
+      if (generation !== this.generation || this.stopping) throw new Error('Redis 连接已被取消');
+      if (!this.isConnected) throw new Error('Redis 客户端尚未就绪');
+      if (await this.client!.ping() !== 'PONG') throw new Error('Redis ping 响应异常');
+      if (generation !== this.generation || this.stopping) throw new Error('Redis 连接已被取消');
       this.reconnectAttempts = 0;
-
       console.log(`✅ Redis 连接成功: ${config.redis.host}:${config.redis.port}`);
-      await this.client.ping();
-      console.log('📡 Redis 连接测试成功');
-
-      return this.client;
+      return this.client!;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('❌ Redis 连接失败:', message);
-      this.isConnected = false;
+      if (generation === this.generation) this.stopping = true;
+      try {
+        await this.closeClients(created);
+      } catch (cleanupError) {
+        console.error('❌ Redis 部分连接清理失败:', String(cleanupError));
+      }
+      console.error('❌ Redis 连接失败:', error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
 
   setupEventListeners(): void {
-    this.client?.on('connect', () => {
-      console.log('📡 Redis 主客户端已连接');
-      this.isConnected = true;
-      this.reconnectAttempts = 0;
-    });
-
-    this.client?.on('error', (error) => {
-      console.error('❌ Redis 主客户端错误:', error.message);
-      this.isConnected = false;
-      void this.handleReconnect();
-    });
-
-    this.client?.on('disconnect', () => {
-      console.log('📡 Redis 主客户端已断开连接');
-      this.isConnected = false;
-    });
-
-    this.client?.on('reconnecting', () => {
-      console.log('🔄 Redis 主客户端重连中...');
-    });
-
-    this.publisher?.on('error', (error) => {
-      console.error('❌ Redis 发布客户端错误:', error.message);
-    });
-
-    this.subscriber?.on('error', (error) => {
-      console.error('❌ Redis 订阅客户端错误:', error.message);
-    });
-
-    process.on('SIGINT', () => {
-      void this.disconnect().finally(() => process.exit(0));
-    });
-
-    process.on('SIGTERM', () => {
-      void this.disconnect().finally(() => process.exit(0));
-    });
-  }
-
-  async handleReconnect(): Promise<void> {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`❌ Redis 重连失败，已达到最大重连次数 ${this.maxReconnectAttempts}`);
-      return;
-    }
-
-    this.reconnectAttempts += 1;
-    const delay = this.reconnectDelay * 2 ** (this.reconnectAttempts - 1);
-
-    console.log(`🔄 Redis 重连尝试 ${this.reconnectAttempts}/${this.maxReconnectAttempts}，等待 ${delay}ms`);
-
-    globalThis.setTimeout(() => {
-      void this.connect().catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`❌ Redis 重连尝试 ${this.reconnectAttempts} 失败:`, message);
-        void this.handleReconnect();
+    const clients = [['主', this.client], ['发布', this.publisher], ['订阅', this.subscriber]] as const;
+    for (const [role, client] of clients) {
+      client?.on('connect', () => console.log(`📡 Redis ${role}客户端正在连接，等待就绪`));
+      client?.on('ready', () => {
+        if (this.isConnected) this.reconnectAttempts = 0;
+        console.log(`✅ Redis ${role}客户端已就绪`);
+        if (this.isConnected && !this.readyPublished) {
+          this.readyPublished = true;
+          for (const listener of this.readyListeners) {
+            void this.recoverOnReady(listener).catch((error) => {
+              console.error('❌ Redis 就绪后的业务恢复失败:', String(error));
+            });
+          }
+        }
       });
-    }, delay);
+      client?.on('end', () => {
+        this.readyPublished = false;
+        console.log(`📡 Redis ${role}客户端已关闭`);
+      });
+      client?.on('error', (error: Error) => {
+        this.readyPublished = false;
+        console.error(`❌ Redis ${role}客户端错误:`, error.message);
+      });
+      client?.on('reconnecting', () => {
+        this.readyPublished = false;
+        console.log(`🔄 Redis ${role}客户端重连中...`);
+      });
+    }
   }
 
-  async disconnect(): Promise<void> {
-    try {
-      if (this.client?.isOpen) {
-        await this.client.disconnect();
-      }
-      if (this.publisher?.isOpen) {
-        await this.publisher.disconnect();
-      }
-      if (this.subscriber?.isOpen) {
-        await this.subscriber.disconnect();
-      }
+  onReady(listener: () => Promise<void>): () => void {
+    this.readyListeners.add(listener);
+    return () => this.readyListeners.delete(listener);
+  }
 
-      this.isConnected = false;
-      console.log('✅ Redis 连接已关闭');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('❌ 关闭 Redis 连接时出错:', message);
-      throw error;
+  private async recoverOnReady(listener: () => Promise<void>): Promise<void> {
+    // Bootstrap cannot rely on a Bull repeat job which may have been lost.
+    // Retry transient setup errors finitely; reconnection will start a new cycle.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!this.isConnected || !this.readyListeners.has(listener)) return;
+      try {
+        await listener();
+        return;
+      } catch (error) {
+        console.error('❌ Redis 就绪后恢复尝试失败:', { attempt: attempt + 1, error: String(error) });
+        if (attempt === 2) throw error;
+      }
     }
+  }
+
+  private async closeClients(clients: Array<RedisClient | null>): Promise<void> {
+    const results = await Promise.allSettled(clients.map(async (client) => {
+      if (client?.isOpen) await client.disconnect();
+    }));
+    const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) {
+      throw new AggregateError(failures.map((result) => result.reason),
+        `Redis 客户端关闭失败: ${failures.map((result) => String(result.reason)).join('; ')}`);
+    }
+  }
+
+  private getReconnectDelay(retries: number): number | Error {
+    this.reconnectAttempts = retries;
+    if (retries > this.maxReconnectAttempts) {
+      return new Error(`Redis 重连失败，已达到最大重连次数 ${this.maxReconnectAttempts}`);
+    }
+    return Math.min(this.reconnectDelay * 2 ** Math.max(retries - 1, 0), 30000);
+  }
+
+  disconnect(): Promise<void> {
+    if (this.disconnectPromise) return this.disconnectPromise;
+    this.stopping = true;
+    this.generation += 1;
+    const disconnecting = this.closeClients([this.client, this.publisher, this.subscriber]).finally(() => {
+      if (this.disconnectPromise === disconnecting) this.disconnectPromise = null;
+    });
+    this.disconnectPromise = disconnecting;
+    return disconnecting;
   }
 
   getClient(): RedisClient {
-    if (!this.isConnected || !this.client) {
-      throw new Error('Redis 未连接或客户端不可用');
-    }
+    if (this.stopping || !this.client?.isReady) throw new Error('Redis 未连接或客户端不可用');
     return this.client;
   }
 
   getPublisher(): RedisClient {
-    if (!this.isConnected || !this.publisher) {
-      throw new Error('Redis 发布客户端未连接');
-    }
+    if (this.stopping || !this.publisher?.isReady) throw new Error('Redis 发布客户端未连接');
     return this.publisher;
   }
 
   getSubscriber(): RedisClient {
-    if (!this.isConnected || !this.subscriber) {
-      throw new Error('Redis 订阅客户端未连接');
-    }
+    if (this.stopping || !this.subscriber?.isReady) throw new Error('Redis 订阅客户端未连接');
     return this.subscriber;
   }
 
@@ -215,7 +217,7 @@ class RedisConnection {
         return { status: 'unhealthy', message: 'Redis ping 响应异常' };
       }
 
-      const testKey = 'health_check_test';
+      const testKey = `selfcontrol:health:${randomUUID()}`;
       const testValue = Date.now().toString();
 
       await this.client.set(testKey, testValue, { EX: 5 });
@@ -324,9 +326,9 @@ class RedisConnection {
       isConnected: this.isConnected,
       reconnectAttempts: this.reconnectAttempts,
       maxReconnectAttempts: this.maxReconnectAttempts,
-      clientReady: this.client?.isReady ?? false,
-      publisherReady: this.publisher?.isReady ?? false,
-      subscriberReady: this.subscriber?.isReady ?? false
+      clientReady: !this.stopping && (this.client?.isReady ?? false),
+      publisherReady: !this.stopping && (this.publisher?.isReady ?? false),
+      subscriberReady: !this.stopping && (this.subscriber?.isReady ?? false)
     };
   }
 
@@ -358,12 +360,10 @@ class RedisConnection {
 
   async publish(channel: string, message: unknown): Promise<number> {
     try {
-      if (!this.publisher) {
-        throw new Error('Redis 发布客户端未连接');
-      }
+      const publisher = this.getPublisher();
 
       const payload = typeof message === 'string' ? message : JSON.stringify(message);
-      return await this.publisher.publish(channel, payload);
+      return await publisher.publish(channel, payload);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`Redis 发布消息失败 [${channel}]:`, errorMessage);
@@ -373,11 +373,9 @@ class RedisConnection {
 
   async subscribe(channel: string, callback: (message: unknown) => void): Promise<void> {
     try {
-      if (!this.subscriber) {
-        throw new Error('Redis 订阅客户端未连接');
-      }
+      const subscriber = this.getSubscriber();
 
-      await this.subscriber.subscribe(channel, (message) => {
+      await subscriber.subscribe(channel, (message) => {
         try {
           callback(JSON.parse(message));
         } catch {
@@ -396,4 +394,5 @@ class RedisConnection {
 
 const redisConnection = new RedisConnection();
 
+export { RedisConnection };
 export default redisConnection;

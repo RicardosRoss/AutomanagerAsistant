@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import TaskService from '../../../src/services/TaskService.js';
 import CultivationService from '../../../src/services/CultivationService.js';
-import { TaskChain } from '../../../src/models/index.js';
+import { TaskChain, User } from '../../../src/models/index.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from '../../../src/types/taskDefaults.js';
 
 /**
@@ -113,17 +113,14 @@ describe('TaskService', () => {
   });
 
   describe('任务状态管理', () => {
-    test('正在进行的任务会自动停止并创建新任务', async () => {
+    test('运行任务不能被新建任务静默替换', async () => {
       const userId = globalThis.testUserId;
       const firstResult = await taskService.createTask(userId, '任务1', 30);
-      const secondResult = await taskService.createTask(userId, '任务2', 30);
-
-      const firstTask = secondResult.chain.tasks.find((task: any) => task.taskId === firstResult.task.taskId);
-
-      expect(firstTask?.status).toBe('cancelled');
-      expect(firstTask?.metadata.notes).toBe('被新任务中断');
-      expect(secondResult.task.status).toBe('running');
-      expect(queueService.cancelTaskReminders).toHaveBeenCalledWith(firstResult.task.taskId);
+      await expect(taskService.createTask(userId, '任务2', 30)).rejects.toThrow('当前已有任务正在进行中');
+      const chain = await TaskChain.findById(firstResult.chain._id);
+      expect(chain?.tasks).toHaveLength(1);
+      expect(chain?.tasks[0]?.status).toBe('running');
+      expect(queueService.cancelTaskReminders).not.toHaveBeenCalled();
     });
 
     test('获取用户状态应返回正确信息', async () => {
@@ -167,10 +164,13 @@ describe('TaskService', () => {
       await backdateTask(taskResult.task.taskId, DEFAULT_TASK_DURATION_MINUTES);
       const result = await integratedTaskService.completeTask(userId, taskResult.task.taskId, true);
 
-      expect(result.cultivationReward).not.toBeNull();
-      expect(result.cultivationReward?.spiritualPower).toBeGreaterThan(0);
-      expect(result.user.cultivation.spiritualPower).toBe(result.cultivationReward?.newSpiritualPower);
-      expect(result.user.cultivation.spiritualPower).toBeGreaterThan(0);
+      expect(result.cultivationReward).toBeNull();
+      expect(result.rewardPending).toBe(true);
+      expect(result.user.cultivation.spiritualPower).toBe(0);
+      await integratedTaskService.recoverPendingRewards(userId);
+      const paid = (await User.findOne({ userId }))!;
+      expect(paid.cultivation.spiritualPower).toBe(1);
+      expect(paid.focusRewardReceipts?.[0]?.reward?.newSpiritualPower).toBe(paid.cultivation.spiritualPower);
     });
   });
 });

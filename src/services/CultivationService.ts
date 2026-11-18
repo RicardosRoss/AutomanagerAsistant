@@ -1,11 +1,9 @@
 import { User, DivinationHistory } from '../models/index.js';
-import { generateId } from '../utils/index.js';
+import { divinationHistoryFields } from '../models/DivinationHistory.js';
+import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import logger from '../utils/logger.js';
-import {
-  BAGUA_DIVINATION,
-  FORTUNE_EVENTS,
-  getCurrentRealm
-} from '../config/cultivation.js';
+import { BAGUA_DIVINATION, FORTUNE_EVENTS } from '../config/cultivation.js';
 import {
   getBattleArtRegistryEntry,
   getBattleSlotLimits,
@@ -34,7 +32,7 @@ import type { FortuneEvent } from '../types/cultivation.js';
 import type { BreakthroughAttemptKind, DevEncounterScript, DevEncounterType } from '../types/cultivationCanonical.js';
 import type { PendingEncounterOfferState } from '../types/cultivationCombat.js';
 import { getInjuryPointsForLevel, normalizeInjuryState } from '../types/cultivationCombat.js';
-import type { IUserCultivationCanonical, UserDocument } from '../types/models.js';
+import type { IUserCultivationCanonical, UserDocument, IDivinationHistory } from '../types/models.js';
 import type {
   AscensionResult,
   BreakthroughResult,
@@ -42,6 +40,7 @@ import type {
   CultivationReward,
   CultivationStatusResult,
   DivinationCastResult,
+  DivinationHistoryResult,
   DivinationStatsResult
 } from '../types/services.js';
 
@@ -91,10 +90,10 @@ class CultivationService {
 
     const script = rawScript as Partial<DevEncounterScript>;
     if (
-      typeof script.type !== 'string'
-      || !Number.isInteger(script.remainingUses)
-      || !script.createdAt
-      || !script.updatedAt
+      typeof script.type !== 'string' ||
+      !Number.isInteger(script.remainingUses) ||
+      !script.createdAt ||
+      !script.updatedAt
     ) {
       return null;
     }
@@ -130,10 +129,10 @@ class CultivationService {
 
     const offer = rawOffer as Partial<PendingEncounterOfferState>;
     if (
-      typeof offer.offerId !== 'string'
-      || typeof offer.lootDefinitionId !== 'string'
-      || typeof offer.lootDisplayName !== 'string'
-      || !offer.createdAt
+      typeof offer.offerId !== 'string' ||
+      typeof offer.lootDefinitionId !== 'string' ||
+      typeof offer.lootDisplayName !== 'string' ||
+      !offer.createdAt
     ) {
       return null;
     }
@@ -180,9 +179,12 @@ class CultivationService {
     input.canonical.state.injuryState = {
       level: combatInjury.nextInjuryLevel,
       points: combatInjury.nextInjuryPoints,
-      modifiers: combatInjury.nextInjuryPoints === 0
-        ? []
-        : (combatInjury.incomingInjuryPoints > 0 ? ['combat_loss'] : input.canonical.state.injuryState.modifiers)
+      modifiers:
+        combatInjury.nextInjuryPoints === 0
+          ? []
+          : combatInjury.incomingInjuryPoints > 0
+            ? ['combat_loss']
+            : input.canonical.state.injuryState.modifiers
     };
     input.canonical.state.realmId = getCanonicalRealmByPower(input.canonical.state.currentPower).id;
     this.syncRealmSubStage(input.canonical);
@@ -221,10 +223,7 @@ class CultivationService {
     };
   }
 
-  private grantEncounterOfferLoot(
-    user: UserDocument,
-    offer: PendingEncounterOfferState
-  ) {
+  private grantEncounterOfferLoot(user: UserDocument, offer: PendingEncounterOfferState) {
     for (const definitionId of offer.obtainedDefinitionIdsOnWin) {
       user.grantInventoryDefinition(definitionId, 'encounter');
     }
@@ -251,12 +250,10 @@ class CultivationService {
     const selectedMethodId = canonical.breakthrough?.selectedBreakthroughMethodId ?? null;
     const selectedMethod = selectedMethodId ? getBreakthroughMethodById(selectedMethodId) : null;
     if (
-      canonical.breakthrough?.targetRealm === 'realm.jindan'
-      || selectedMethod?.applicableTransition === 'zifu_to_jindan'
-      || (
-        canonical.state.realmSubStageId === 'realmSubStage.zifu.perfect'
-        && canonical.state.knownDivinePowerIds.length >= 5
-      )
+      canonical.breakthrough?.targetRealm === 'realm.jindan' ||
+      selectedMethod?.applicableTransition === 'zifu_to_jindan' ||
+      (canonical.state.realmSubStageId === 'realmSubStage.zifu.perfect' &&
+        canonical.state.knownDivinePowerIds.length >= 5)
     ) {
       return 'realm_zifu_to_jindan';
     }
@@ -267,10 +264,7 @@ class CultivationService {
   private normalizePhaseAState(canonical: IUserCultivationCanonical): boolean {
     let changed = false;
 
-    const normalizedMainMethodId = normalizeMainMethodIdForRealm(
-      canonical.state.mainMethodId,
-      canonical.state.realmId
-    );
+    const normalizedMainMethodId = normalizeMainMethodIdForRealm(canonical.state.mainMethodId, canonical.state.realmId);
     if (canonical.state.mainMethodId !== normalizedMainMethodId) {
       canonical.state.mainMethodId = normalizedMainMethodId;
       changed = true;
@@ -322,9 +316,9 @@ class CultivationService {
         changed = true;
       }
       if (
-        !Object.prototype.hasOwnProperty.call(canonical.breakthrough, 'branchProofs')
-        || !canonical.breakthrough.branchProofs
-        || Array.isArray(canonical.breakthrough.branchProofs)
+        !Object.prototype.hasOwnProperty.call(canonical.breakthrough, 'branchProofs') ||
+        !canonical.breakthrough.branchProofs ||
+        Array.isArray(canonical.breakthrough.branchProofs)
       ) {
         canonical.breakthrough.branchProofs = {};
         changed = true;
@@ -341,9 +335,9 @@ class CultivationService {
     } else {
       const normalizedInjuryState = normalizeInjuryState(canonical.state.injuryState);
       if (
-        canonical.state.injuryState.level !== normalizedInjuryState.level
-        || canonical.state.injuryState.points !== normalizedInjuryState.points
-        || canonical.state.injuryState.modifiers.length !== normalizedInjuryState.modifiers.length
+        canonical.state.injuryState.level !== normalizedInjuryState.level ||
+        canonical.state.injuryState.points !== normalizedInjuryState.points ||
+        canonical.state.injuryState.modifiers.length !== normalizedInjuryState.modifiers.length
       ) {
         canonical.state.injuryState = normalizedInjuryState;
         changed = true;
@@ -366,10 +360,12 @@ class CultivationService {
   private formatCombatLoadoutStatus(canonical: IUserCultivationCanonical): CombatLoadoutStatusResult {
     const display = formatCanonicalRealmDisplay(canonical.state);
     const projectedLoadout = projectCombatLoadout(canonical.state);
-    const unlockedBattleArts = getUnlockedRuntimeReadyBattleArts(canonical.state)
-      .filter(({ entry }) => canonical.state.knownBattleArtIds.includes(entry.id));
-    const unlockedDivinePowers = getUnlockedRuntimeReadyDivinePowers(canonical.state)
-      .filter(({ entry }) => canonical.state.knownDivinePowerIds.includes(entry.id));
+    const unlockedBattleArts = getUnlockedRuntimeReadyBattleArts(canonical.state).filter(({ entry }) =>
+      canonical.state.knownBattleArtIds.includes(entry.id)
+    );
+    const unlockedDivinePowers = getUnlockedRuntimeReadyDivinePowers(canonical.state).filter(({ entry }) =>
+      canonical.state.knownDivinePowerIds.includes(entry.id)
+    );
 
     const availableBattleArts = unlockedBattleArts
       .filter(({ entry }) => entry.category !== 'support')
@@ -396,7 +392,7 @@ class CultivationService {
 
     const battleArts = availableBattleArts.filter((item) => item.equipped);
     const supportArt = projectedLoadout.activeSupportArtId
-      ? availableSupportArts.find((item) => item.id === projectedLoadout.activeSupportArtId) ?? null
+      ? (availableSupportArts.find((item) => item.id === projectedLoadout.activeSupportArtId) ?? null)
       : null;
     const divinePowers = availableDivinePowers.filter((item) => item.equipped);
 
@@ -413,6 +409,14 @@ class CultivationService {
 
   private uniqueIds(ids: string[]) {
     return [...new Set(ids)];
+  }
+
+  private async assertFocusRewardsSettled(userId: number, account?: UserDocument): Promise<void> {
+    const pending = account ? account.pendingFocusRewards?.length
+      : await User.exists({ userId, 'pendingFocusRewards.0': { $exists: true } });
+    if (pending) {
+      throw new Error('附加奖励正在同步，修仙操作请稍后重试；专注任务不受影响，可用 /realm 查看进度');
+    }
   }
 
   async getCombatLoadoutStatus(userId: number): Promise<CombatLoadoutStatusResult> {
@@ -434,10 +438,12 @@ class CultivationService {
   }
 
   async updateBattleArtLoadout(userId: number, ids: string[]): Promise<CombatLoadoutStatusResult> {
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -472,10 +478,12 @@ class CultivationService {
   }
 
   async updateSupportArtLoadout(userId: number, id: string | null): Promise<CombatLoadoutStatusResult> {
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -506,10 +514,12 @@ class CultivationService {
   }
 
   async updateDivinePowerLoadout(userId: number, ids: string[]): Promise<CombatLoadoutStatusResult> {
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -558,7 +568,12 @@ class CultivationService {
         user.replaceCanonicalCultivation(canonical);
       }
       user.syncLegacyCultivationShell();
-      if (normalizedPhaseA || normalizedPhaseB || user.isModified('cultivation.canonical') || user.isModified('cultivation')) {
+      if (
+        normalizedPhaseA ||
+        normalizedPhaseB ||
+        user.isModified('cultivation.canonical') ||
+        user.isModified('cultivation')
+      ) {
         await user.save();
       }
       const display = formatCanonicalRealmDisplay(canonical.state);
@@ -580,13 +595,13 @@ class CultivationService {
         branchProofs: canonical.breakthrough?.branchProofs ?? {}
       });
       const realmSpan = display.realm.maxPower - display.realm.minPower;
-      const progress = realmSpan <= 0
-        ? 100
-        : Math.floor(((canonical.state.currentPower - display.realm.minPower) / realmSpan) * 100);
+      const progress =
+        realmSpan <= 0 ? 100 : Math.floor(((canonical.state.currentPower - display.realm.minPower) / realmSpan) * 100);
       const clampedProgress = Math.max(0, Math.min(100, progress));
-      const nextRealmProgress = readiness.reason === 'max_realm'
-        ? null
-        : Math.max(0, display.realm.maxPower + 1 - canonical.state.currentPower);
+      const nextRealmProgress =
+        readiness.reason === 'max_realm'
+          ? null
+          : Math.max(0, display.realm.maxPower + 1 - canonical.state.currentPower);
 
       return {
         user,
@@ -615,6 +630,7 @@ class CultivationService {
         knownBattleArtCount: canonical.state.knownBattleArtIds.length,
         knownDivinePowerCount: canonical.state.knownDivinePowerIds.length,
         canonicalState: canonical.state,
+        pendingFocusRewardCount: user.pendingFocusRewards?.length ?? 0,
         activeBuff: canonical.state.pendingDivinationBuff
           ? `${canonical.state.pendingDivinationBuff.label}：${canonical.state.pendingDivinationBuff.description}`
           : null
@@ -639,10 +655,12 @@ class CultivationService {
       throw new Error('次数必须是 1 到 20 的整数');
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -681,10 +699,12 @@ class CultivationService {
       throw new Error('该命令仅在开发环境可用');
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -699,10 +719,12 @@ class CultivationService {
       throw new Error('该命令仅在测试环境可用');
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -798,10 +820,12 @@ class CultivationService {
       throw new Error('该命令仅在测试环境可用');
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
@@ -827,7 +851,10 @@ class CultivationService {
     return { level: canonical.state.injuryState.level };
   }
 
-  async grantBattleArtsForTesting(userId: number, ids: string[]): Promise<{
+  async grantBattleArtsForTesting(
+    userId: number,
+    ids: string[]
+  ): Promise<{
     grantedIds: string[];
     grantedNames: string[];
   }> {
@@ -845,19 +872,18 @@ class CultivationService {
       throw new Error(`以下法门不存在：${invalidIds.join('、')}`);
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
     this.syncRealmSubStage(canonical);
 
-    canonical.state.knownBattleArtIds = this.uniqueIds([
-      ...canonical.state.knownBattleArtIds,
-      ...nextIds
-    ]);
+    canonical.state.knownBattleArtIds = this.uniqueIds([...canonical.state.knownBattleArtIds, ...nextIds]);
 
     user.replaceCanonicalCultivation(canonical);
     user.syncLegacyCultivationShell();
@@ -869,7 +895,10 @@ class CultivationService {
     };
   }
 
-  async grantDivinePowersForTesting(userId: number, ids: string[]): Promise<{
+  async grantDivinePowersForTesting(
+    userId: number,
+    ids: string[]
+  ): Promise<{
     grantedIds: string[];
     grantedNames: string[];
   }> {
@@ -887,19 +916,18 @@ class CultivationService {
       throw new Error(`以下神通不存在：${invalidIds.join('、')}`);
     }
 
+    await this.assertFocusRewardsSettled(userId);
     const user = await User.findOne({ userId });
     if (!user) {
       throw new Error('用户不存在');
     }
+    await this.assertFocusRewardsSettled(userId, user);
 
     const canonical = user.ensureCanonicalCultivation();
     this.normalizePhaseAState(canonical);
     this.syncRealmSubStage(canonical);
 
-    canonical.state.knownDivinePowerIds = this.uniqueIds([
-      ...canonical.state.knownDivinePowerIds,
-      ...nextIds
-    ]);
+    canonical.state.knownDivinePowerIds = this.uniqueIds([...canonical.state.knownDivinePowerIds, ...nextIds]);
 
     user.replaceCanonicalCultivation(canonical);
     user.syncLegacyCultivationShell();
@@ -911,13 +939,28 @@ class CultivationService {
     };
   }
 
-  async awardCultivation(userId: number, duration: number): Promise<CultivationReward> {
+  async awardCultivation(userId: number, duration: number, taskId?: string): Promise<CultivationReward> {
+    let processingToken: string | undefined;
     try {
-      const user = await User.findOne({ userId });
+      const user = taskId ? await this.claimFocusRewardReceipt(userId, taskId) : await User.findOne({ userId });
+      if (!user && taskId) {
+        const existing = await User.findOne({ userId, 'focusRewardReceipts.taskId': taskId });
+        const receipt = existing?.focusRewardReceipts?.find((entry) => entry.taskId === taskId);
+        if (receipt?.status === 'settled' && receipt.reward) {
+          return receipt.reward as unknown as CultivationReward;
+        }
+        throw new Error('该任务奖励正在处理中，请稍后重试');
+      }
       if (!user) {
         throw new Error('用户不存在');
       }
-      const canonical = user.ensureCanonicalCultivation();
+      processingToken = user.focusRewardReceipts?.find((entry) => entry.taskId === taskId)?.processingToken;
+      const pendingFocus = user.pendingFocusRewards?.[0];
+      if (pendingFocus && pendingFocus.taskId !== taskId) throw new Error('前序附加奖励尚未同步，不能越序发放');
+      if (pendingFocus && user.cultivation.canonical?.state.combatFlags.pendingEncounterOffer) {
+        throw new Error('请先处理当前守宝奇遇，再同步后续附加奖励');
+      }
+      let canonical = user.ensureCanonicalCultivation();
       this.normalizePhaseAState(canonical);
       const oldRealmId = canonical.state.realmId;
       const oldRealmName = getRealmById(oldRealmId).name;
@@ -997,16 +1040,17 @@ class CultivationService {
       user.cultivation.peakSpiritualPower = Math.max(user.cultivation.peakSpiritualPower, canonical.state.currentPower);
 
       user.addImmortalStones(encounter.type === 'offer' ? 0 : encounter.spiritStoneDelta);
+      user.replaceCanonicalCultivation(canonical);
       for (const definitionId of encounter.type === 'offer' ? [] : encounter.obtainedDefinitionIds) {
         user.grantInventoryDefinition(definitionId, encounter.type === 'combat' ? 'encounter' : 'focus');
       }
+      canonical = user.ensureCanonicalCultivation();
       if (encounter.type !== 'none') {
         user.cultivation.fortuneEventsTriggered += 1;
       }
 
       user.replaceCanonicalCultivation(canonical);
       user.syncLegacyCultivationShell();
-      await user.save();
 
       const realmChanged = oldRealmId !== canonical.state.realmId;
       const readiness = evaluateBreakthroughReadiness({
@@ -1026,7 +1070,7 @@ class CultivationService {
         branchProofs: canonical.breakthrough?.branchProofs ?? {}
       });
 
-      return {
+      const reward: CultivationReward = {
         spiritualPower: awardedPowerGain,
         immortalStones: encounter.spiritStoneDelta,
         cultivationAttainment: canonical.state.cultivationAttainment,
@@ -1035,11 +1079,11 @@ class CultivationService {
         encounter,
         injuryRecovery: injuryRecovery.applied
           ? {
-            applied: true,
-            previousLevel: injuryRecovery.previousInjuryLevel,
-            nextLevel: injuryRecovery.nextInjuryLevel,
-            summary: injuryRecovery.summary
-          }
+              applied: true,
+              previousLevel: injuryRecovery.previousInjuryLevel,
+              nextLevel: injuryRecovery.nextInjuryLevel,
+              summary: injuryRecovery.summary
+            }
           : null,
         bonus: 1,
         fortuneEvent: {
@@ -1055,19 +1099,103 @@ class CultivationService {
         newSpiritualPower: user.cultivation.spiritualPower,
         breakthroughReady: readiness.ready
       };
+      if (taskId) {
+        const receipt = user.focusRewardReceipts?.find((entry) => entry.taskId === taskId);
+        if (!receipt || receipt.processingToken !== processingToken) throw new Error('奖励收据认领已变化，请重试');
+        receipt.status = 'settled';
+        receipt.reward = reward as unknown as Record<string, unknown>;
+        receipt.updatedAt = new Date();
+        receipt.processingUntil = undefined;
+        receipt.processingToken = undefined;
+        if (pendingFocus) {
+          user.pendingFocusRewards = user.pendingFocusRewards?.filter(entry => entry.taskId !== taskId);
+        }
+      }
+      // Assets and the receipt live in the same User document. One versioned
+      // save commits both, including inventory, encounter state and streak.
+      await user.save();
+      return reward;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (taskId) {
+        const persisted = await User.findOne({ userId, 'focusRewardReceipts.taskId': taskId });
+        const completed = persisted?.focusRewardReceipts?.find((entry) => entry.taskId === taskId);
+        if (completed?.status === 'settled' && completed.reward) {
+          return completed.reward as unknown as CultivationReward;
+        }
+        if (processingToken) {
+          await User.updateOne(
+            { userId, focusRewardReceipts: { $elemMatch: { taskId, status: 'processing', processingToken } } },
+            {
+              $set: { 'focusRewardReceipts.$.status': 'failed', 'focusRewardReceipts.$.updatedAt': new Date() },
+              $unset: { 'focusRewardReceipts.$.processingUntil': 1 },
+              $inc: { __v: 1 }
+            }
+          ).catch(() => undefined);
+        }
+      }
       logger.error(`奖励修炼失败: ${message}`, { userId, duration });
+      if (error instanceof Error && error.name === 'VersionError') {
+        throw new Error('账户状态已变化，本次奖励尚未结算，请稍后重新确认任务');
+      }
       throw error;
     }
   }
 
+  private async claimFocusRewardReceipt(userId: number, taskId: string) {
+    const now = new Date();
+    const existing = await User.findOne({ userId, 'focusRewardReceipts.taskId': taskId });
+    const receipt = existing?.focusRewardReceipts?.find((entry) => entry.taskId === taskId);
+    if (receipt?.status === 'settled' && receipt.reward) return null;
+    if (receipt?.status === 'processing' && receipt.processingUntil && receipt.processingUntil > now) return null;
+    if (receipt && !receipt.processingToken) throw new Error('旧奖励收据缺少原子结算凭证，需先审计，不能自动重发');
+
+    if (receipt) {
+      return User.findOneAndUpdate(
+        { userId, focusRewardReceipts: { $elemMatch: {
+          taskId, $or: [
+            { status: 'failed' },
+            { status: 'processing', processingUntil: { $not: { $gt: now } } }
+          ]
+        } } },
+        {
+          $set: {
+            'focusRewardReceipts.$.status': 'processing',
+            'focusRewardReceipts.$.updatedAt': now,
+            'focusRewardReceipts.$.processingUntil': new Date(now.getTime() + 60000),
+            'focusRewardReceipts.$.processingToken': randomUUID()
+          }, $inc: { __v: 1 }
+        },
+        { new: true }
+      );
+    }
+
+    return User.findOneAndUpdate(
+      { userId, $nor: [{ focusRewardReceipts: { $elemMatch: { taskId } } }] },
+      {
+        $push: {
+          focusRewardReceipts: {
+            taskId,
+            status: 'processing',
+            createdAt: now,
+            updatedAt: now,
+            processingToken: randomUUID(),
+            processingUntil: new Date(now.getTime() + 60000)
+          }
+        }, $inc: { __v: 1 }
+      },
+      { new: true }
+    );
+  }
+
   async castDivination(userId: number, betAmount: number): Promise<DivinationCastResult> {
     try {
+      await this.assertFocusRewardsSettled(userId);
       const user = await User.findOne({ userId });
       if (!user) {
         throw new Error('用户不存在');
       }
+      await this.assertFocusRewardsSettled(userId, user);
       const canonical = user.ensureCanonicalCultivation();
       this.normalizePhaseAState(canonical);
       user.syncLegacyCultivationShell();
@@ -1092,7 +1220,8 @@ class CultivationService {
       canonical.state.pendingDivinationBuff = buff;
       user.replaceCanonicalCultivation(canonical);
 
-      user.cultivation.immortalStones += result;
+      // Match the existing User save hook's balance floor before recording the committed snapshot.
+      user.cultivation.immortalStones = Math.max(0, user.cultivation.immortalStones + result);
       user.recordDivination(result);
       user.syncLegacyCultivationShell();
 
@@ -1102,8 +1231,8 @@ class CultivationService {
       const powerChange = 0;
       const newStage = user.cultivation.realmStage;
 
-      const gameId = generateId('divination');
-      await DivinationHistory.create({
+      const gameId = `divination_${randomUUID()}`;
+      const history: IDivinationHistory = {
         userId,
         gameId,
         betAmount,
@@ -1118,10 +1247,28 @@ class CultivationService {
         powerAfter,
         realmBefore,
         realmAfter,
-        realmChanged
-      });
+        realmChanged,
+        timestamp: new Date()
+      };
+      user.pendingDivinationHistories ??= [];
+      user.pendingDivinationHistories.push(history);
 
-      await user.save();
+      try {
+        // Account effects and replay data share one versioned document commit.
+        await user.save();
+      } catch (error) {
+        const committed = await User.exists({ userId, 'pendingDivinationHistories.gameId': gameId }) ||
+          await DivinationHistory.exists({ userId, gameId });
+        if (!committed) throw error;
+      }
+      let historyPending = false;
+      try {
+        await this.flushDivinationHistory(userId, history);
+      } catch (error) {
+        historyPending = true;
+        logger.warn('占卜账户已结算，历史等待恢复', { userId, gameId,
+          error: error instanceof Error ? error.message : String(error) });
+      }
 
       logger.info(`占卜完成: ${gua.name}`, {
         userId,
@@ -1132,6 +1279,7 @@ class CultivationService {
       });
 
       return {
+        historyPending,
         roll,
         gua,
         betAmount,
@@ -1156,10 +1304,12 @@ class CultivationService {
 
   async attemptBreakthrough(userId: number): Promise<BreakthroughResult> {
     try {
+      await this.assertFocusRewardsSettled(userId);
       const user = await User.findOne({ userId });
       if (!user) {
         throw new Error('用户不存在');
       }
+      await this.assertFocusRewardsSettled(userId, user);
       const canonical = user.ensureCanonicalCultivation();
       this.normalizePhaseAState(canonical);
       this.syncRealmSubStage(canonical);
@@ -1215,13 +1365,15 @@ class CultivationService {
 
           const gateSummary = result.breakthroughResolution?.gates.length
             ? result.breakthroughResolution.gates
-              .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
-              .join(' / ')
+                .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
+                .join(' / ')
             : null;
 
           return {
             success: false,
-            message: `⚠️ 破境失败：止步${failedGateName}\n\n💥 修为损失：-${result.powerLossApplied}\n📉 道行损失：-${result.attainmentLossApplied}${gateSummary ? `\n🧭 四关过程：${gateSummary}` : ''}`,
+            message:
+              `⚠️ 破境失败：止步${failedGateName}\n\n💥 修为损失：-${result.powerLossApplied}` +
+              `\n📉 道行损失：-${result.attainmentLossApplied}${gateSummary ? `\n🧭 四关过程：${gateSummary}` : ''}`,
             penalty: result.powerLossApplied,
             realmDemoted: false,
             newRealm: currentRealm.name,
@@ -1229,11 +1381,12 @@ class CultivationService {
           };
         }
 
-        const reasonMessage = result.reason === 'max_realm'
-          ? '已达当前体系最高境界，暂无更高可突破境界。'
-          : result.reason === 'missing_requirement'
-            ? '突破配置缺失，请联系管理员。'
-            : `突破条件不足：${result.missing.join('、') || '未知条件'}`;
+        const reasonMessage =
+          result.reason === 'max_realm'
+            ? '已达当前体系最高境界，暂无更高可突破境界。'
+            : result.reason === 'missing_requirement'
+              ? '突破配置缺失，请联系管理员。'
+              : `突破条件不足：${result.missing.join('、') || '未知条件'}`;
         return {
           success: false,
           message: `⚠️ 破境条件未满足\n\n${reasonMessage}`,
@@ -1294,25 +1447,24 @@ class CultivationService {
         user.cultivation.peakRealm = user.cultivation.realm;
         user.cultivation.peakRealmId = user.cultivation.realmId;
       }
-      user.cultivation.peakSpiritualPower = Math.max(
-        user.cultivation.peakSpiritualPower,
-        canonical.state.currentPower
-      );
+      user.cultivation.peakSpiritualPower = Math.max(user.cultivation.peakSpiritualPower, canonical.state.currentPower);
 
       await user.save();
 
       logger.info(`渡劫成功: ${oldRealmName} → ${nextRealm.name}`, { userId });
       const methodName = result.breakthroughResolution.methodId
-        ? (getBreakthroughMethodById(result.breakthroughResolution.methodId)?.name ?? result.breakthroughResolution.methodId)
+        ? (getBreakthroughMethodById(result.breakthroughResolution.methodId)?.name ??
+          result.breakthroughResolution.methodId)
         : null;
-      const bonusOutcomeNames = result.breakthroughResolution.bonusOutcomeIds.map((id) => (
+      const bonusOutcomeNames = result.breakthroughResolution.bonusOutcomeIds.map((id) =>
         this.contentNameResolver.resolve(id)
-      ));
-      const gateSummary = result.breakthroughResolution.gates.length > 0
-        ? `🧭 四关：${result.breakthroughResolution.gates
-          .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
-          .join(' / ')}`
-        : null;
+      );
+      const gateSummary =
+        result.breakthroughResolution.gates.length > 0
+          ? `🧭 四关：${result.breakthroughResolution.gates
+              .map((gate) => `${gateNameMap[gate.id] ?? gate.id}${gate.passed ? '✓' : '✗'}`)
+              .join(' / ')}`
+          : null;
       const sideEffectSummary = result.breakthroughResolution.sideEffectsApplied
         .map((id) => this.contentNameResolver.resolve(id))
         .join('、');
@@ -1324,7 +1476,9 @@ class CultivationService {
       ].filter(Boolean);
       return {
         success: true,
-        message: `⚡⚡⚡ 天劫降临！\n\n🎊 成功突破至 ${nextRealm.name}！\n📖 称号：${nextRealm.name}修士${processLines.length > 0 ? `\n${processLines.join('\n')}` : ''}`,
+        message:
+          `⚡⚡⚡ 天劫降临！\n\n🎊 成功突破至 ${nextRealm.name}！\n📖 称号：${nextRealm.name}修士` +
+          (processLines.length > 0 ? `\n${processLines.join('\n')}` : ''),
         oldRealm: oldRealmName,
         newRealm: nextRealm.name,
         newTitle: `${nextRealm.name}修士`
@@ -1338,10 +1492,12 @@ class CultivationService {
 
   async ascend(userId: number): Promise<AscensionResult> {
     try {
+      await this.assertFocusRewardsSettled(userId);
       const user = await User.findOne({ userId });
       if (!user) {
         throw new Error('用户不存在');
       }
+      await this.assertFocusRewardsSettled(userId, user);
       const canonical = user.ensureCanonicalCultivation();
       this.normalizePhaseAState(canonical);
 
@@ -1383,10 +1539,10 @@ class CultivationService {
         ascensionCount: user.cultivation.ascensions,
         immortalMarks: user.cultivation.immortalMarks,
         message:
-          '☁️☁️☁️ 天门洞开！\n\n🌟 功德圆满，飞升仙界！\n\n'
-          + `👑 获得仙位印记 x1\n📊 总飞升次数：${user.cultivation.ascensions}\n`
-          + `💫 仙位印记：${user.cultivation.immortalMarks}\n\n`
-          + '🔄 境界重置为炼气期，开启新一轮修仙之路！'
+          '☁️☁️☁️ 天门洞开！\n\n🌟 功德圆满，飞升仙界！\n\n' +
+          `👑 获得仙位印记 x1\n📊 总飞升次数：${user.cultivation.ascensions}\n` +
+          `💫 仙位印记：${user.cultivation.immortalMarks}\n\n` +
+          '🔄 境界重置为炼气期，开启新一轮修仙之路！'
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1395,9 +1551,12 @@ class CultivationService {
     }
   }
 
-  async getDivinationHistory(userId: number, limit = 10) {
+  async getDivinationHistory(userId: number, limit = 10): Promise<DivinationHistoryResult> {
     try {
-      return await DivinationHistory.getUserHistory(userId, limit);
+      const pendingSyncCount = await this.trySyncDivinationHistory(userId);
+      const history: DivinationHistoryResult = await DivinationHistory.getUserHistory(userId, limit);
+      if (pendingSyncCount) history.pendingSyncCount = pendingSyncCount;
+      return history;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`获取占卜历史失败: ${message}`, { userId });
@@ -1407,12 +1566,64 @@ class CultivationService {
 
   async getDivinationStats(userId: number): Promise<DivinationStatsResult> {
     try {
-      return await DivinationHistory.getUserStats(userId);
+      const pendingSyncCount = await this.trySyncDivinationHistory(userId);
+      const stats: DivinationStatsResult = await DivinationHistory.getUserStats(userId);
+      if (pendingSyncCount) stats.pendingSyncCount = pendingSyncCount;
+      return stats;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.error(`获取占卜统计失败: ${message}`, { userId });
       throw error;
     }
+  }
+
+  private async trySyncDivinationHistory(userId: number): Promise<number> {
+    try {
+      await this.recoverDivinationHistories(userId);
+    } catch (error) {
+      logger.warn('占卜历史同步暂未完成，继续提供已有记录', { userId,
+        error: error instanceof Error ? error.message : String(error) });
+    }
+    const user = await User.findOne({ userId }).select('pendingDivinationHistories');
+    return user?.pendingDivinationHistories?.length ?? 0;
+  }
+
+  private async flushDivinationHistory(userId: number, history: IDivinationHistory): Promise<void> {
+    if (history.userId !== userId) throw new Error('占卜历史归属异常，需要审计');
+    const fields = Object.keys(divinationHistoryFields) as Array<keyof IDivinationHistory>;
+    const record = Object.fromEntries(fields.map(field => [field, history[field]]));
+    let stored;
+    try {
+      stored = await DivinationHistory.findOneAndUpdate({ userId, gameId: history.gameId },
+        { $setOnInsert: record }, { upsert: true, new: true, runValidators: true });
+    } catch (error) {
+      if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 11000)) throw error;
+      stored = await DivinationHistory.findOne({ userId, gameId: history.gameId });
+    }
+    if (!stored || !fields.every(field => isDeepStrictEqual(history[field], stored![field]))) {
+      throw new Error('占卜历史与已结算快照不一致，需要审计');
+    }
+    await User.updateOne({ userId, 'pendingDivinationHistories.gameId': history.gameId }, {
+      $pull: { pendingDivinationHistories: { gameId: history.gameId } }, $inc: { __v: 1 }
+    });
+  }
+
+  async recoverDivinationHistories(userId?: number): Promise<void> {
+    let failures = 0;
+    const cursor = User.find({ ...(userId === undefined ? {} : { userId }),
+      'pendingDivinationHistories.0': { $exists: true } }).cursor();
+    for await (const user of cursor) {
+      for (const history of user.pendingDivinationHistories ?? []) {
+        try {
+          await this.flushDivinationHistory(user.userId, history);
+        } catch (error) {
+          failures += 1;
+          logger.error('占卜历史恢复失败', { userId: user.userId, gameId: history.gameId,
+            error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    }
+    if (failures) throw new Error(`${failures} 条占卜历史同步失败，请先查看 /realm，不要重复下注`);
   }
 
   async getLeaderboard(type = 'power', limit = 10) {

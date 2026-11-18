@@ -7,7 +7,16 @@ import QueueService from './QueueService.js';
 import RSIPService from './RSIPService.js';
 import TaskService from './TaskService.js';
 
-export { CTDPService, ContentDefinitionService, ContentNameResolver, RSIPService, TaskService, QueueService, CultivationService, PrecedentService };
+export {
+  CTDPService,
+  ContentDefinitionService,
+  ContentNameResolver,
+  RSIPService,
+  TaskService,
+  QueueService,
+  CultivationService,
+  PrecedentService
+};
 
 export default {
   CTDPService,

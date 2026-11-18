@@ -64,7 +64,8 @@ class BotConfig {
   getBotOptions(): TelegramBot.ConstructorOptions {
     const baseOptions: TelegramBot.ConstructorOptions = {
       polling: this.options.polling,
-      filepath: false
+      filepath: false,
+      request: { timeout: 20000 } as TelegramBot.ConstructorOptions['request']
     };
 
     if (this.options.polling) {
@@ -102,16 +103,18 @@ class BotConfig {
     const reservationDelayText = formatDurationFromSeconds(config.linearDelay.defaultReservationDelay);
 
     return [
+      { command: 'schedule', description: '查看从 Nautilus 同步的日程提醒' },
       { command: 'start', description: '开始使用自控力助手' },
       { command: 'help', description: '查看帮助信息' },
       { command: 'task', description: '创建专注任务 - 用法: /task <描述> [时长(分钟)]' },
-      { command: 'reserve', description: `预约${reservationDelayText}后开始任务` },
+      { command: 'reserve', description: `承诺在${reservationDelayText}内开始任务` },
       { command: 'status', description: '查看当前状态和进度' },
       { command: 'stats', description: '查看今日统计数据' },
       { command: 'week', description: '查看本周统计报告' },
       { command: 'settings', description: '管理个人设置' },
       { command: 'patterns', description: '查看 RSIP 定式树' },
       { command: 'precedents', description: '查看下必为例判例' },
+      { command: 'violation', description: '报告主链行为并进行下必为例判定' },
       { command: 'reserve_status', description: '查看辅助链预约状态' },
       { command: 'loadout', description: '查看当前战斗构筑' },
       { command: 'equip_art', description: '设置主战法门 - 用法: /equip_art <id[,id...]>' },
@@ -128,11 +131,11 @@ class BotConfig {
       version: config.app.version,
       description: '基于科学自控力理论的专注任务管理机器人',
       features: [
-        '🎯 神圣座位原理：失败重置所有进度',
+        '🎯 神圣座位原理：失败重置当前链记录',
         `⏰ ${reservationDelayText}预约机制：降低启动阻力`,
         '📊 详细统计分析：追踪专注表现',
         '🏆 成就系统：连击记录和等级提升',
-        '📅 每日/周报：专注数据可视化'
+        '📅 任务记录：保留历史专注投入'
       ],
       support: {
         email: config.app.supportEmail ?? null,

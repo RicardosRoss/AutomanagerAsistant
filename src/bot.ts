@@ -1,3 +1,4 @@
+import { sendTelegramMessage, databaseErrorNotice, isValidTelegramCallbackData } from './utils/telegramMessages.js';
 import TelegramBot from 'node-telegram-bot-api';
 import BotConfig from './config/bot.js';
 import redisConnection from './config/redis.js';
@@ -7,10 +8,17 @@ import CultivationService from './services/CultivationService.js';
 import CTDPService from './services/CTDPService.js';
 import logger from './utils/logger.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from './types/taskDefaults.js';
-import { BOT_COMMANDS, CALLBACK_PREFIXES } from './utils/constants.js';
+import {
+  CALLBACK_PREFIXES, TASK_DESCRIPTION_ERROR, RESERVATION_SERVICE_UNAVAILABLE
+} from './utils/constants.js';
+import { dispatchCommand } from './commands/registry.js';
+import { previewTaskDescription, splitTelegramPlainText } from './utils/taskText.js';
 import CultivationCommandHandlers from './handlers/cultivationCommands.js';
 import CoreCommandHandlers from './handlers/coreCommands.js';
 import TaskCommandHandlers from './handlers/taskCommands.js';
+import TaskDraftHandlers from './handlers/taskDraftCommands.js';
+import PatternCommandHandlers from './handlers/patternCommands.js';
+import MainViolationService from './services/MainViolationService.js';
 import type { ContentNameResolverDependency } from './services/CultivationService.js';
 
 interface SelfControlBotDependencies {
@@ -36,13 +44,21 @@ class SelfControlBot {
 
   ctdpService: CTDPService;
 
+  mainViolationService: MainViolationService;
+
   cultivationHandlers: CultivationCommandHandlers | null;
 
   coreHandlers: CoreCommandHandlers | null;
 
   taskHandlers: TaskCommandHandlers | null;
 
+  draftHandlers: TaskDraftHandlers | null;
+
   isRunning: boolean;
+
+  botUsername: string | null = null;
+
+  private unsubscribeRedisRecovery: (() => void) | null = null;
 
   constructor(dependencies: SelfControlBotDependencies = {}) {
     this.config = new BotConfig();
@@ -53,9 +69,38 @@ class SelfControlBot {
     });
     this.taskService = new TaskService(this.queueService, this.cultivationService);
     this.ctdpService = new CTDPService(this.taskService, this.queueService);
+    this.mainViolationService = new MainViolationService(this.queueService, this.taskService);
+    this.queueService.setMainDecisionRecoveryHandler(() => this.mainViolationService.recoverSelectedDecisions());
+    this.queueService.setTaskCreationRecoveryHandler(async () => {
+      const outcomes = await Promise.allSettled([
+        this.taskService.recoverCreationRollbacks(), this.ctdpService.recoverUnpublishedStarts(),
+        this.taskService.recoverCoreResults(), this.ctdpService.recoverConfirmedNodes(),
+        this.taskService.recoverDailySnapshots()
+      ]);
+      if (outcomes.some(result => result.status === 'rejected')) throw new Error('部分任务启动恢复失败，将稍后重试');
+    });
+    this.queueService.setFocusRewardRecoveryHandler(async () => {
+      const outcomes = await Promise.allSettled([
+        this.taskService.recoverPendingRewards(undefined, async (userId, taskId, reward, task) => {
+          await this.getTaskHandlers().sendRewardNotice(userId, taskId, reward, task);
+        }),
+        this.cultivationService.recoverDivinationHistories()
+      ]);
+      if (outcomes.some(result => result.status === 'rejected')) throw new Error('部分附加奖励等待下次恢复，专注不受影响');
+    });
+    this.queueService.setReservationRecoveryHandler(
+      (reservationId) => this.ctdpService.recoverReservation(reservationId)
+    );
+    this.queueService.setReservationExpiryHandler(async (reservationId) => {
+      const result = await this.ctdpService.expireReservation(reservationId);
+      if (result.expired && result.auxChain?.pendingDecision && !result.auxChain.pendingDecision.notifiedAt) {
+        await this.getTaskHandlers().sendAuxiliaryDecision(result.auxChain.userId, reservationId, true);
+      }
+    });
     this.cultivationHandlers = null;
     this.coreHandlers = null;
     this.taskHandlers = null;
+    this.draftHandlers = null;
     this.isRunning = false;
 
     this.handleMessage = this.handleMessage.bind(this);
@@ -111,18 +156,30 @@ class SelfControlBot {
       ctdpService: this.ctdpService,
       onError: this.sendErrorMessage.bind(this)
     });
+    this.draftHandlers = new TaskDraftHandlers(bot, this.taskHandlers);
 
     this.cultivationHandlers = new CultivationCommandHandlers(bot, this.cultivationService);
   }
 
   async start(): Promise<this> {
     try {
-      this.bot = new TelegramBot(this.config.token, this.config.getBotOptions());
+      const botOptions = this.config.getBotOptions();
+      this.bot = new TelegramBot(this.config.token, { ...botOptions, polling: false });
       this.queueService.setBotInstance(this.bot);
       this.initializeHandlers(this.bot);
 
       await this.queueService.initialize();
-      await this.setupCommands();
+      this.unsubscribeRedisRecovery?.();
+      this.unsubscribeRedisRecovery = redisConnection.onReady(() => this.queueService.restoreAfterRedisReconnect());
+      try {
+        await this.setupCommands();
+      } catch (error) {
+        logger.warn('命令菜单同步失败，继续启动消息处理', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      const botInfo = await this.bot.getMe();
+      this.botUsername = botInfo.username?.toLowerCase() ?? null;
       this.registerEventHandlers();
 
       if (this.config.options.webHook) {
@@ -138,8 +195,6 @@ class SelfControlBot {
       }
 
       this.isRunning = true;
-      const botInfo = await this.bot.getMe();
-
       logger.info('🤖 Telegram自控力助手启动成功', {
         botName: botInfo.first_name,
         botUsername: botInfo.username,
@@ -177,8 +232,7 @@ class SelfControlBot {
 
     logger.info('Bot事件处理器注册完成');
 
-    this.getCultivationHandlers().registerCommands();
-    logger.info('修仙系统命令已注册');
+    logger.info('核心与修仙命令统一分发已就绪');
   }
 
   async handleMessage(msg: TelegramBot.Message): Promise<void> {
@@ -186,12 +240,12 @@ class SelfControlBot {
     const text = msg.text || '';
     const messageId = msg.message_id;
     const chatId = msg.chat.id;
-    const username =
-      msg.from?.username || `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim();
+    const username = msg.from?.username || `${msg.from?.first_name || ''} ${msg.from?.last_name || ''}`.trim();
 
-    if (!userId) {
+    if (!userId || msg.from?.is_bot) {
       return;
     }
+    if (!this.isPersonalChat(msg) && !text.startsWith('/')) return;
 
     const updateKey = this.getMessageUpdateKey(msg);
     logger.info('收到 Telegram message update', {
@@ -205,10 +259,7 @@ class SelfControlBot {
     });
 
     if (updateKey) {
-      const shouldProcess = await this.claimProcessingKey(
-        updateKey,
-        SelfControlBot.UPDATE_DEDUP_TTL_SECONDS
-      );
+      const shouldProcess = await this.claimProcessingKey(updateKey, SelfControlBot.UPDATE_DEDUP_TTL_SECONDS);
       if (!shouldProcess) {
         logger.warn('忽略重复的 Telegram message update', {
           userId,
@@ -228,7 +279,12 @@ class SelfControlBot {
       if (text.startsWith('/')) {
         await this.handleCommand(msg);
       } else {
-        await this.getCoreHandlers().handleTextInput(msg);
+        const handled = await this.draftHandlers?.handleText(userId, text);
+        if (!handled && this.draftHandlers && /任务|专注|学习|工作/.test(text)) {
+          await this.draftHandlers.begin(userId, 'reserve', text);
+        } else if (!handled) {
+          await this.getCoreHandlers().handleTextInput(msg);
+        }
       }
     } catch (error) {
       logger.logError(error, { userId, text, command: 'message_handler' });
@@ -245,73 +301,46 @@ class SelfControlBot {
       return;
     }
 
-    const [command = '', ...args] = text.slice(1).split(' ');
+    const parsed = /^\/([a-z0-9_]+)(?:@([a-z0-9_]+))?(?:\s+([\s\S]*))?$/i.exec(text);
+    if (!parsed) return;
+    const command = parsed[1]!.toLowerCase();
+    const recipient = parsed[2]?.toLowerCase();
+    if (recipient && recipient !== this.botUsername?.toLowerCase()) {
+      logger.debug('忽略发给其他机器人或身份尚未就绪的命令', { recipient, botUsername: this.botUsername });
+      return;
+    }
+    if (!this.isPersonalChat(msg)) {
+      await sendTelegramMessage(this.getBot(), msg.chat.id, '请在与我的私聊中管理任务、预约和个人记录。');
+      return;
+    }
+    const args = (parsed[3] ?? '').trim().split(/\s+/);
 
-    const cultivationCommands = [
-      'realm',
-      'loadout',
-      'equip_art',
-      'equip_support',
-      'equip_power',
-      'dev_combat_detail',
-      'dev_set_injury',
-      'dev_grant_art',
-      'dev_grant_power',
-      'dev_encounter_set',
-      'dev_encounter_status',
-      'dev_encounter_clear',
-      'divination',
-      'divination_history',
-      'divination_chart',
-      'breakthrough',
-      'ascension',
-      'confirm_ascension',
-      'rankings',
-      'mystats',
-      'stones'
-    ];
-
-    if (cultivationCommands.includes(command.toLowerCase())) {
+    if (this.cultivationHandlers && await this.cultivationHandlers.dispatchCommand(msg, command, args.join(' '))) {
       return;
     }
 
-    switch (command.toLowerCase()) {
-      case BOT_COMMANDS.START:
-        await this.getCoreHandlers().handleStartCommand(userId, user);
-        break;
-      case BOT_COMMANDS.HELP:
-        await this.getCoreHandlers().handleHelpCommand(userId);
-        break;
-      case BOT_COMMANDS.TASK:
-        await this.getTaskHandlers().handleTaskCommand(userId, args.join(' '));
-        break;
-      case BOT_COMMANDS.RESERVE:
-        await this.getTaskHandlers().handleReserveCommand(userId, args.join(' '));
-        break;
-      case BOT_COMMANDS.STATUS:
-        await this.getCoreHandlers().handleStatusCommand(userId);
-        break;
-      case BOT_COMMANDS.STATS:
-        await this.getCoreHandlers().handleStatsCommand(userId);
-        break;
-      case BOT_COMMANDS.WEEK:
-        await this.getCoreHandlers().handleWeekCommand(userId);
-        break;
-      case BOT_COMMANDS.SETTINGS:
-        await this.getCoreHandlers().handleSettingsCommand(userId);
-        break;
-      case BOT_COMMANDS.PATTERNS:
-        await this.handlePatternsCommand(userId);
-        break;
-      case BOT_COMMANDS.PRECEDENTS:
-        await this.handlePrecedentsCommand(userId);
-        break;
-      case BOT_COMMANDS.RESERVE_STATUS:
-        await this.handleReserveStatusCommand(userId);
-        break;
-      default:
-        await this.getBot().sendMessage(userId, '未知命令。使用 /help 查看可用命令列表。');
-    }
+    const input = args.join(' ');
+    const dispatched = await dispatchCommand(command, {
+      start: () => this.getCoreHandlers().handleStartCommand(userId, user),
+      help: () => this.getCoreHandlers().handleHelpCommand(userId),
+      task: async () => {
+        if (!input.trim() && this.draftHandlers) await this.draftHandlers.begin(userId, 'start');
+        else await this.getTaskHandlers().handleTaskCommand(userId, input);
+      },
+      reserve: async () => {
+        if (!input.trim() && this.draftHandlers) await this.draftHandlers.begin(userId, 'reserve');
+        else await this.getTaskHandlers().handleReserveCommand(userId, input);
+      },
+      status: () => this.getCoreHandlers().handleStatusCommand(userId),
+      stats: () => this.getCoreHandlers().handleStatsCommand(userId),
+      week: () => this.getCoreHandlers().handleWeekCommand(userId),
+      settings: () => this.getCoreHandlers().handleSettingsCommand(userId, input),
+      patterns: () => this.handlePatternsCommand(userId, input),
+      precedents: () => this.handlePrecedentsCommand(userId),
+      violation: () => this.handleViolationCommand(userId, input),
+      reserve_status: () => this.handleReserveStatusCommand(userId)
+    });
+    if (!dispatched) await sendTelegramMessage(this.getBot(), userId, '未知命令。使用 /help 查看可用命令列表。');
   }
 
   async handleCallbackQuery(callbackQuery: TelegramBot.CallbackQuery): Promise<void> {
@@ -319,11 +348,20 @@ class SelfControlBot {
     const data = callbackQuery.data;
     const messageId = callbackQuery.message?.message_id;
 
-    if (!data) {
-      return;
-    }
-
     try {
+      if (callbackQuery.inline_message_id || !callbackQuery.message?.chat ||
+        !this.isPersonalChat({ ...callbackQuery.message, from: callbackQuery.from })) {
+        await this.answerCallbackSafely(callbackQuery.id, {
+          text: '请在与我的私聊中操作自己的任务', show_alert: true
+        });
+        return;
+      }
+      if (!isValidTelegramCallbackData(data)) {
+        await this.answerCallbackSafely(callbackQuery.id, {
+          text: '按钮数据无效，请重新查看当前状态', show_alert: true
+        });
+        return;
+      }
       const updateKey = this.getCallbackUpdateKey(callbackQuery);
       const actionKey = this.getCallbackActionKey(callbackQuery);
 
@@ -337,10 +375,7 @@ class SelfControlBot {
         source: 'callback_query_update'
       });
 
-      const shouldProcessUpdate = await this.claimProcessingKey(
-        updateKey,
-        SelfControlBot.UPDATE_DEDUP_TTL_SECONDS
-      );
+      const shouldProcessUpdate = await this.claimProcessingKey(updateKey, SelfControlBot.UPDATE_DEDUP_TTL_SECONDS);
       if (!shouldProcessUpdate) {
         logger.warn('忽略重复的 Telegram callback_query update', {
           userId,
@@ -353,10 +388,7 @@ class SelfControlBot {
         return;
       }
 
-      const shouldProcessAction = await this.claimProcessingKey(
-        actionKey,
-        SelfControlBot.CALLBACK_ACTION_TTL_SECONDS
-      );
+      const shouldProcessAction = await this.claimProcessingKey(actionKey, SelfControlBot.CALLBACK_ACTION_TTL_SECONDS);
       if (!shouldProcessAction) {
         logger.warn('忽略短时间内重复触发的 callback 操作', {
           userId,
@@ -366,14 +398,16 @@ class SelfControlBot {
           actionKey,
           source: 'callback_query_update'
         });
-        await this.getBot().answerCallbackQuery(callbackQuery.id, {
+        await this.answerCallbackSafely(callbackQuery.id, {
           text: '操作处理中，请勿重复点击',
           show_alert: false
         });
         return;
       }
 
-      await this.getBot().answerCallbackQuery(callbackQuery.id);
+      // Acknowledge independently: Telegram's spinner response must not gate
+      // a valid, authenticated action or consume it on a transport failure.
+      void this.answerCallbackSafely(callbackQuery.id);
 
       if (data.startsWith(CALLBACK_PREFIXES.COMPLETE_TASK)) {
         await this.getTaskHandlers().handleCompleteTaskCallback(userId, data);
@@ -394,32 +428,29 @@ class SelfControlBot {
       }
     } catch (error) {
       logger.logError(error, { userId, callbackData: data, command: 'callback_query' });
-
-      if (this.isExpiredCallbackQueryError(error)) {
-        logger.warn('忽略过期的 callback query', { userId, callbackData: data });
-        return;
-      }
-
-      try {
-        await this.getBot().answerCallbackQuery(callbackQuery.id, {
-          text: '操作失败，请稍后重试',
-          show_alert: true
-        });
-      } catch (callbackError) {
-        if (this.isExpiredCallbackQueryError(callbackError)) {
-          logger.warn('callback query 错误提示已过期，跳过响应', {
-            userId,
-            callbackData: data
-          });
-          return;
+      const responses = await Promise.allSettled([
+        this.answerCallbackSafely(callbackQuery.id, { text: '操作失败，请稍后重试', show_alert: true }),
+        sendTelegramMessage(this.getBot(), userId, '❌ 操作失败，请稍后重试。可用 /status 或 /reserve_status 查看当前状态。')
+      ]);
+      for (const response of responses) {
+        if (response.status === 'rejected') {
+          logger.logError(response.reason, { userId, command: 'callback_error_notice' });
         }
-
-        logger.logError(callbackError, {
-          userId,
-          callbackData: data,
-          command: 'callback_query_error_response'
-        });
       }
+    }
+  }
+
+  private async answerCallbackSafely(
+    id: string, options?: Omit<TelegramBot.AnswerCallbackQueryOptions, 'callback_query_id'>
+  ): Promise<void> {
+    try {
+      await this.getBot().answerCallbackQuery(id, options);
+    } catch (error) {
+      logger.warn(this.isExpiredCallbackQueryError(error)
+        ? '按钮确认已过期，业务状态仍按数据库校验处理'
+        : '按钮确认发送失败，业务状态仍按数据库校验处理', {
+        callbackId: id, error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
@@ -457,10 +488,11 @@ class SelfControlBot {
 
     const message = error.message.toLowerCase();
 
-    return (
-      message.includes('409 conflict')
-      || message.includes('terminated by other getupdates request')
-    );
+    return message.includes('409 conflict') || message.includes('terminated by other getupdates request');
+  }
+
+  private isPersonalChat(msg: TelegramBot.Message): boolean {
+    return msg.chat.id === msg.from?.id && (!msg.chat.type || msg.chat.type === 'private');
   }
 
   private getMessageUpdateKey(msg: TelegramBot.Message): string | null {
@@ -499,8 +531,13 @@ class SelfControlBot {
     if (cachedExpiresAt && cachedExpiresAt > now) {
       return false;
     }
+    // Claim locally before awaiting Redis so overlapping deliveries in this
+    // process cannot both pass if the remote claim's response is lost.
+    SelfControlBot.processedUpdateCache.set(key, expiresAt);
 
-    if (redisConnection.isConnected) {
+    // Offline fallback is scoped to the configured single polling process;
+    // multi-instance operation must not treat this cache as a distributed claim.
+    if (redisConnection.getConnectionStatus().clientReady) {
       try {
         const result = await redisConnection.getClient().set(
           `bot:processed-update:${key}`,
@@ -517,11 +554,14 @@ class SelfControlBot {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        logger.warn('Redis update 去重写入失败，回退到进程内去重缓存', {
+        // Keep this update consumed locally until its TTL expires. A new
+        // message or callback id can retry; replaying an ambiguous claim cannot.
+        logger.warn('Redis update 认领结果不明，跳过本次更新以免重复执行', {
           key,
           ttlSeconds,
           error: message
         });
+        return false;
       }
     }
 
@@ -530,21 +570,52 @@ class SelfControlBot {
   }
 
   async handleQuickCallback(userId: number, data: string): Promise<void> {
+    if (data.startsWith('main_violation:')) {
+      const [, decision, decisionToken, extra] = data.split(':');
+      await this.handleMainViolationDecision(userId, decision ?? '', extra === undefined ? decisionToken : undefined);
+      return;
+    }
+    if (data.startsWith('pattern:')) {
+      const [, action, argument] = data.split(':');
+      await this.handlePatternsCommand(userId, `${action ?? ''} ${argument ?? ''}`);
+      return;
+    }
+    if (data.startsWith('settings:')) {
+      const [, field, value] = data.split(':');
+      await this.getCoreHandlers().handleSettingsCommand(userId, `${field ?? ''} ${value ?? ''}`);
+      return;
+    }
+    if (data.startsWith('aux_decide:')) {
+      await this.getTaskHandlers().handleAuxiliaryDecisionCallback(userId, data);
+      return;
+    }
+    if (data.startsWith('draft:') && this.draftHandlers) {
+      await this.draftHandlers.handleCallback(userId, data);
+      return;
+    }
     switch (data) {
       case 'quick_task':
-        await this.getTaskHandlers().sendTaskPrompt(userId);
+        if (this.draftHandlers) await this.draftHandlers.begin(userId, 'start');
+        else await this.getTaskHandlers().sendTaskPrompt(userId);
         break;
       case 'quick_reserve':
-        await this.getTaskHandlers().sendReservePrompt(userId);
+        if (this.draftHandlers) await this.draftHandlers.begin(userId, 'reserve');
+        else await this.getTaskHandlers().sendReservePrompt(userId);
         break;
       case 'quick_status':
         await this.getCoreHandlers().handleStatusCommand(userId);
+        break;
+      case 'quick_reserve_status':
+        await this.handleReserveStatusCommand(userId);
         break;
       case 'quick_stats':
         await this.getCoreHandlers().handleStatsCommand(userId);
         break;
       case 'quick_week':
         await this.getCoreHandlers().handleWeekCommand(userId);
+        break;
+      case 'quick_violation':
+        await this.handleViolationCommand(userId, '');
         break;
       case 'quick_help':
         await this.getCoreHandlers().sendQuickHelp(userId);
@@ -563,23 +634,37 @@ class SelfControlBot {
           const [, description = '', duration = String(DEFAULT_TASK_DURATION_MINUTES)] = data.split(':');
           await this.getTaskHandlers().handleReserveCommand(userId, `${description} ${duration}`.trim());
         } else {
-          await this.getBot().sendMessage(userId, '未知操作，请重试。');
+          await sendTelegramMessage(this.getBot(), userId, '未知操作，请重试。');
         }
     }
   }
 
   async sendErrorMessage(userId: number, message: string): Promise<void> {
     const userFriendlyMessage = this.getUserFriendlyError(message);
-    await this.getBot().sendMessage(userId, `❌ ${userFriendlyMessage}`);
+    await sendTelegramMessage(this.getBot(), userId, `❌ ${userFriendlyMessage}`);
   }
 
   getUserFriendlyError(errorMessage: string): string {
+    const databaseNotice = databaseErrorNotice(errorMessage);
+    if (databaseNotice) return databaseNotice;
+    const settlementNotice = errorMessage.match(/(?:上次任务结果正在保存|任务结算认领已变化|任务结算正在处理中).*$/);
+    if (settlementNotice) return settlementNotice[0];
+    if (errorMessage === TASK_DESCRIPTION_ERROR) return errorMessage;
+    if (errorMessage === RESERVATION_SERVICE_UNAVAILABLE) return errorMessage;
+    const rewardError = errorMessage.match(/(?:账户状态已变化|旧奖励收据缺少).*$/);
+    if (rewardError) return rewardError[0];
+    if (/任务正在(?:启动|初始化)/.test(errorMessage)) return '任务正在启动，请稍后使用 /status 查看进展';
+    if (/^(任务时长必须|时区无效|过程提醒只能|可设置|请先使用|判例按钮已过期|违规行为必须|任务结果已保存)/.test(errorMessage)) {
+      return errorMessage;
+    }
+    if (/^(预约不存在或已处理|预约正在启动|预约状态已变化)/.test(errorMessage)) return errorMessage;
+    if (errorMessage.includes('请先处理')) return errorMessage.replace(/^.*(?:失败:|失败：)\s*/, '');
     if (errorMessage.includes('自控力检查')) {
       return errorMessage.replace('完成任务失败: ', '');
     }
 
     const errorMap: Record<string, string> = {
-      '任务不存在或已被删除': '任务已过期或不存在，请创建新任务',
+      任务不存在或已被删除: '任务已过期或不存在，请创建新任务',
       用户不存在: '用户信息异常，请重新使用 /start 命令',
       '任务未在运行状态，无法完成': '任务已结束或不存在，无法操作',
       'QueueService 未初始化': '系统正在初始化，请稍后重试',
@@ -597,53 +682,102 @@ class SelfControlBot {
     return errorMap[errorMessage] || '操作失败，请稍后重试';
   }
 
-  async handlePatternsCommand(userId: number): Promise<void> {
-    try {
-      const { RSIPService } = await import('./services/index.js');
-      const rsipService = new RSIPService();
-      const tree = await rsipService.getPatternTree(userId);
-
-      if (!tree || tree.nodes.length === 0) {
-        await this.getBot().sendMessage(userId, '🌲 您还没有创建任何定式。\n\n使用 `/patterns` 后面的子命令来管理 RSIP 定式树。');
-        return;
-      }
-
-      let message = '🌲 **RSIP 定式树**\n\n';
-      const rootNode = tree.nodes.find((n: { parentId: string | null }) => !n.parentId);
-      if (rootNode) {
-        message += `📌 根定式：${rootNode.title} (${rootNode.status})\n`;
-      }
-      message += `📊 总节点数：${tree.nodes.length}\n`;
-      message += `📅 今日新增限制：${tree.limits.maxNewPatternsPerDay} 个/天`;
-
-      await this.getBot().sendMessage(userId, message, { parse_mode: 'Markdown' });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      await this.sendErrorMessage(userId, msg);
-    }
+  async handlePatternsCommand(userId: number, input = ''): Promise<void> {
+    await new PatternCommandHandlers(this.getBot()).handle(userId, input);
   }
 
   async handlePrecedentsCommand(userId: number): Promise<void> {
     try {
       const { PrecedentRule } = await import('./models/index.js');
       const rules = await PrecedentRule.find({ userId });
+      const { MainChain, AuxChain } = await import('./models/index.js');
+      const [main, aux] = await Promise.all([
+        MainChain.findOne({ userId, status: 'active' }), AuxChain.findOne({ userId, status: 'active' })
+      ]);
 
       if (rules.length === 0) {
-        await this.getBot().sendMessage(userId, '⚖️ 您还没有任何判例规则。\n\n当违规行为出现时，系统会要求您做出决定。');
+        await sendTelegramMessage(this.getBot(),
+          userId,
+          '⚖️ 您还没有任何判例规则。\n\n当违规行为出现时，系统会要求您做出决定。'
+        );
         return;
       }
 
-      let message = `⚖️ **判例规则** (${rules.length} 条)\n\n`;
+      let message = `⚖️ 判例规则 (${rules.length} 条)\n仅标为当前的规则适用于现行链，历史判例保留备查。\n\n`;
       for (const rule of rules) {
-        const chainType = rule.scope.chainType === 'main' ? '主链' : '辅助链';
+        const activeId = rule.scope.chainType === 'main' ? main?.chainId : aux?.chainId;
+        const current = rule.scope.chainId && rule.scope.chainId === activeId;
+        const chainType = `${current ? '当前' : '历史'}${rule.scope.chainType === 'main' ? '主链' : '辅助链'}`;
         const decision = rule.decision === 'allow_forever' ? '永久允许' : rule.decision;
         message += `• ${rule.scope.behaviorKey} (${chainType}): ${decision}\n`;
       }
 
-      await this.getBot().sendMessage(userId, message, { parse_mode: 'Markdown' });
+      for (const chunk of splitTelegramPlainText(message)) await sendTelegramMessage(this.getBot(), userId, chunk);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       await this.sendErrorMessage(userId, msg);
+    }
+  }
+
+  async handleViolationCommand(userId: number, behaviorKey: string): Promise<void> {
+    try {
+      const result = await this.mainViolationService.report(userId, behaviorKey);
+      if (!result.requiresDecision) {
+        await sendTelegramMessage(this.getBot(), userId, '当前主链已有判例允许这个行为，本次不打断任务。');
+        return;
+      }
+      const pending = result.pending;
+      if (!pending?.decisionToken) throw new Error('主链判例状态已变化，请重新查看');
+      if (pending.decision) {
+        await this.mainViolationService.recoverSelectedDecisions(userId);
+        await sendTelegramMessage(this.getBot(),
+          userId, '你的主链判例决定已保存，系统会继续处理原决定。请用 /status 查看结果，无需重新选择。'
+        );
+        return;
+      }
+      await sendTelegramMessage(this.getBot(),
+        userId,
+        `主链规则需要判定：${pending.behaviorKey}\n\n` +
+          '如果这次允许，当前主链以后遇到同一行为也必须允许。\n' +
+          '如果不能接受，就立即断链并清空当前主链记录。',
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '断链，重新从 #1 开始', callback_data: `main_violation:break_chain:${pending.decisionToken}` },
+                { text: '当前主链永久允许', callback_data: `main_violation:allow_forever:${pending.decisionToken}` }
+              ]
+            ]
+          }
+        }
+      );
+    } catch (error) {
+      await this.sendErrorMessage(userId, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async handleMainViolationDecision(userId: number, decision: string, decisionToken?: string): Promise<void> {
+    if (decision !== 'break_chain' && decision !== 'allow_forever') return;
+    if (!/^[a-f0-9]{20}$/.test(decisionToken ?? '')) {
+      await sendTelegramMessage(this.getBot(), userId, '判例按钮已过期，请用 /violation 查看当前判例');
+      return;
+    }
+    try {
+      const result = await this.mainViolationService.resolve(userId, decision, decisionToken);
+      if (result.replayed) {
+        await sendTelegramMessage(this.getBot(),
+          userId, '这条判例决定此前已处理完成，本次没有修改当前任务或规则。使用 /status 查看当前状态。'
+        );
+        return;
+      }
+      await sendTelegramMessage(this.getBot(),
+        userId,
+        decision === 'break_chain'
+          ? '主链已断裂，当前任务记录已清空；下一次从 #1 开始。'
+          : '已形成当前主链的永久判例，今后相同行为不再视为违规。'
+      );
+    } catch (error) {
+      await this.sendErrorMessage(userId, error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -653,28 +787,47 @@ class SelfControlBot {
       const auxChain = await AuxChain.findOne({ userId, status: 'active' });
 
       if (!auxChain || !auxChain.pendingReservation) {
-        await this.getBot().sendMessage(userId, '⏰ 当前没有活跃预约。\n\n使用 `/reserve 任务描述 时长` 创建预约。');
+        await sendTelegramMessage(this.getBot(), userId, '⏰ 当前没有活跃预约。\n\n使用 `/reserve 任务描述 时长` 创建预约。');
         return;
       }
 
       const res = auxChain.pendingReservation;
-      const remaining = res.deadlineAt
-        ? Math.max(0, Math.ceil((res.deadlineAt.getTime() - Date.now()) / 60000))
-        : 0;
+      if (res.status === 'starting' || auxChain.pendingDecision?.chosenDecision) {
+        await this.ctdpService.recoverReservation(res.reservationId ?? '');
+        const current = await AuxChain.findOne({ userId, status: 'active' });
+        if (current?.pendingReservation?.status !== 'starting' && !current?.pendingDecision?.chosenDecision) {
+          await this.handleReserveStatusCommand(userId);
+          return;
+        }
+        await sendTelegramMessage(this.getBot(),
+          userId,
+          res.status === 'starting'
+            ? '预约正在启动，不必重复点击。可以用 /status 查看任务进展。'
+            : '你的判例决定已保存，系统正在完成处理。不必再次选择，稍后查看 /reserve_status。',
+          { reply_markup: { inline_keyboard: [[{ text: '查看任务状态', callback_data: 'quick_status' }]] } }
+        );
+        return;
+      }
+      if (auxChain.pendingDecision) {
+        await this.getTaskHandlers().sendAuxiliaryDecision(userId, res.reservationId ?? '');
+        return;
+      }
+      const remaining = res.deadlineAt ? Math.max(0, Math.ceil((res.deadlineAt.getTime() - Date.now()) / 60000)) : 0;
 
       let message = '⏰ **预约状态**\n\n';
-      message += `📋 任务：${res.signal}\n`;
+      message += `📋 任务：${previewTaskDescription(res.signal)}\n`;
       message += `🆔 预约ID：${res.reservationId}\n`;
       message += `⏱ 剩余时间：${remaining} 分钟\n`;
       message += `📊 状态：${res.status}`;
 
-      await this.getBot().sendMessage(userId, message, {
-        parse_mode: 'Markdown',
+      await sendTelegramMessage(this.getBot(), userId, message, {
         reply_markup: {
-          inline_keyboard: [[
-            { text: '🚀 立即开始', callback_data: `start_reserved_${res.reservationId}` },
-            { text: '❌ 取消预约', callback_data: `cancel_reservation_${res.reservationId}` }
-          ]]
+          inline_keyboard: [
+            [
+              { text: '🚀 立即开始', callback_data: `start_reserved_${res.reservationId}` },
+              { text: '❌ 取消预约', callback_data: `cancel_reservation_${res.reservationId}` }
+            ]
+          ]
         }
       });
     } catch (error) {
@@ -733,17 +886,16 @@ class SelfControlBot {
   }
 
   async stop(): Promise<void> {
-    if (this.bot && this.isRunning) {
-      try {
-        await this.bot.stopPolling();
-        await this.queueService.close();
-        this.isRunning = false;
-        logger.info('Bot已停止运行');
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.error('停止Bot时发生错误', { error: message });
+    this.unsubscribeRedisRecovery?.();
+    this.unsubscribeRedisRecovery = null;
+    this.isRunning = false;
+    const results = await Promise.allSettled([this.bot?.stopPolling(), this.queueService.close()]);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        logger.error('停止Bot时发生错误', { error: String(result.reason) });
       }
     }
+    logger.info('Bot已停止运行');
   }
 }
 

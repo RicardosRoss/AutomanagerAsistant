@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SelfControlBot from '../../src/bot.js';
 import logger from '../../src/utils/logger.js';
+import redisConnection from '../../src/config/redis.js';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -11,6 +12,30 @@ beforeEach(() => {
 });
 
 describe('SelfControlBot incoming update deduplication', () => {
+  test('an ambiguous Redis claim failure must not execute the command', async () => {
+    const bot = new SelfControlBot();
+    const handleStatusCommand = vi.fn();
+    bot.coreHandlers = { handleStatusCommand } as never;
+    bot.bot = { sendMessage: vi.fn() } as never;
+    vi.spyOn(redisConnection, 'getConnectionStatus').mockReturnValue({
+      isConnected: true, clientReady: true, publisherReady: true, subscriberReady: true,
+      reconnectAttempts: 0, maxReconnectAttempts: 10
+    });
+    vi.spyOn(redisConnection, 'getClient').mockReturnValue({
+      set: vi.fn().mockRejectedValueOnce(new Error('response lost after SET')).mockResolvedValue('OK')
+    } as never);
+    await bot.handleMessage({
+      message_id: 99001, chat: { id: 5515965469 }, from: { id: 5515965469 }, text: '/status'
+    } as never);
+    await bot.handleMessage({
+      message_id: 99001, chat: { id: 5515965469 }, from: { id: 5515965469 }, text: '/status'
+    } as never);
+    expect(handleStatusCommand).not.toHaveBeenCalled();
+    await bot.handleMessage({
+      message_id: 99002, chat: { id: 5515965469 }, from: { id: 5515965469 }, text: '/status'
+    } as never);
+    expect(handleStatusCommand).toHaveBeenCalledTimes(1);
+  });
   test('ignores duplicate message updates with the same message id', async () => {
     const handleStatusCommand = vi.fn().mockResolvedValue(undefined);
     const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
@@ -83,7 +108,7 @@ describe('SelfControlBot incoming update deduplication', () => {
       id: 'duplicate-callback',
       from: { id: 5515965469 },
       data: 'quick_stats',
-      message: { message_id: 777 }
+      message: { message_id: 777, chat: { id: 5515965469, type: 'private' } }
     };
 
     await bot.handleCallbackQuery(callbackQuery as never);
@@ -137,14 +162,14 @@ describe('SelfControlBot incoming update deduplication', () => {
       id: 'callback-1',
       from: { id: 5515965469 },
       data: 'quick_stats',
-      message: { message_id: 888 }
+      message: { message_id: 888, chat: { id: 5515965469, type: 'private' } }
     } as never);
 
     await bot.handleCallbackQuery({
       id: 'callback-2',
       from: { id: 5515965469 },
       data: 'quick_stats',
-      message: { message_id: 888 }
+      message: { message_id: 888, chat: { id: 5515965469, type: 'private' } }
     } as never);
 
     expect(handleStatsCommand).toHaveBeenCalledTimes(1);
@@ -167,7 +192,7 @@ describe('SelfControlBot incoming update deduplication', () => {
 });
 
 describe('SelfControlBot callback query handling', () => {
-  test('ignores expired callback query acknowledgement errors', async () => {
+  test('expired acknowledgement does not discard a business action', async () => {
     const bot = Object.create(SelfControlBot.prototype) as SelfControlBot & {
       bot: {
         answerCallbackQuery: ReturnType<typeof vi.fn>;
@@ -181,16 +206,19 @@ describe('SelfControlBot callback query handling', () => {
         )
       )
     };
+    const action = vi.spyOn(bot, 'handleQuickCallback').mockResolvedValue(undefined);
 
     await expect(
       bot.handleCallbackQuery({
         id: 'expired-query',
         from: { id: 5515965469 },
-        data: 'quick_rankings'
+        data: 'quick_rankings',
+        message: { message_id: 889, chat: { id: 5515965469, type: 'private' } }
       } as never)
     ).resolves.toBeUndefined();
 
     expect(bot.bot.answerCallbackQuery).toHaveBeenCalledTimes(1);
+    expect(action).toHaveBeenCalledWith(5515965469, 'quick_rankings');
   });
 
   test('routes guardian encounter callbacks to TaskCommandHandlers', async () => {
@@ -219,14 +247,14 @@ describe('SelfControlBot callback query handling', () => {
       id: 'guardian-contest',
       from: { id: 5515965469 },
       data: 'encounter_contest_offer_1',
-      message: { message_id: 901 }
+      message: { message_id: 901, chat: { id: 5515965469, type: 'private' } }
     } as never);
 
     await bot.handleCallbackQuery({
       id: 'guardian-abandon',
       from: { id: 5515965469 },
       data: 'encounter_abandon_offer_1',
-      message: { message_id: 902 }
+      message: { message_id: 902, chat: { id: 5515965469, type: 'private' } }
     } as never);
 
     expect(handleContestEncounterCallback).toHaveBeenCalledWith(5515965469, 'encounter_contest_offer_1');

@@ -8,7 +8,8 @@ import type {
 const scopeSchema = new Schema<IPrecedentRuleScope>(
   {
     behaviorKey: { type: String, index: true, required: true },
-    chainType: { type: String, enum: ['main', 'aux'], required: true }
+    chainType: { type: String, enum: ['main', 'aux'], required: true },
+    chainId: String
   },
   { _id: false }
 );
@@ -26,7 +27,9 @@ const precedentRuleSchema = new Schema<IPrecedentRule, IPrecedentRuleModel>(
   {}
 );
 
-precedentRuleSchema.index({ userId: 1, 'scope.behaviorKey': 1, 'scope.chainType': 1 }, { unique: true });
+precedentRuleSchema.index({ userId: 1, 'scope.behaviorKey': 1, 'scope.chainType': 1, 'scope.chainId': 1 }, {
+  name: 'precedent_per_chain', unique: true
+});
 
 const PrecedentRule = mongoose.model<IPrecedentRule, IPrecedentRuleModel>(
   'PrecedentRule',

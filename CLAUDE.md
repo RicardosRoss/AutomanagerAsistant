@@ -4,7 +4,7 @@
 
 ## 项目概述
 
-这是一个 **Telegram 自控力助手** 项目 - 基于科学自控力理论的 Telegram 机器人，帮助用户管理任务、追踪专注时间和培养习惯。项目目前处于规划/文档阶段，有详细的开发规范但尚未实现代码。
+这是一个 **Telegram 自控力助手** 项目 - 基于科学自控力理论的 Telegram 机器人，重点是降低任务启动阻力、维护主链/辅助链并通过 RSIP 培养定式。当前运行入口为 TypeScript 编译产物。
 
 ## 架构与理论
 
@@ -12,13 +12,13 @@
 
 机器人实现三个科学原理：
 
-1. **神圣座位原理**：连续的任务完成创造心理约束力。**关键**：任何任务失败立即将所有进度重置为零。
+1. **神圣座位原理**：连续的任务完成创造心理约束力。**关键**：任务失败清空当前主链节点和当前连击，保留历史统计与已获得资产。
 
-2. **线性时延原理**：15 分钟预约延迟可降低 60%的任务启动阻力。
+2. **线性时延原理**：发出预约信号后，在 15 分钟内启动主任务；先预约是为了降低立即切换阻力。
 
 3. **下必为例原理**：每个决策都成为未来行为的先例（MVP 版本简化为关键词分类）。
 
-### 技术栈（计划）
+### 技术栈
 
 - **后端**：Node.js 18+ 配合 Express
 - **数据库**：MongoDB 配合 Mongoose ODM
@@ -30,36 +30,36 @@
 
 ```
 src/
-├── bot.js              # Bot主入口
+├── bot.ts              # Bot主入口
 ├── config/
-│   ├── database.js     # MongoDB配置
-│   └── redis.js        # Redis配置
+│   ├── database.ts     # MongoDB配置
+│   └── redis.ts        # Redis配置
 ├── models/
-│   ├── User.js         # 用户模型
-│   ├── TaskChain.js    # 任务链模型（实现神圣座位原理）
+│   ├── User.ts         # 用户模型
+│   ├── TaskChain.ts    # 任务链模型（实现神圣座位原理）
 │   ├── Pattern.js      # 简单定式模型
-│   └── DailyStats.js   # 每日统计模型
+│   └── DailyStats.ts   # 每日统计模型
 ├── services/
-│   ├── TaskService.js        # 任务管理（核心逻辑）
-│   ├── QueueService.js       # 队列管理
-│   ├── ReservationService.js # 15分钟预约系统
+│   ├── TaskService.ts        # 任务管理（核心逻辑）
+│   ├── QueueService.ts       # 队列管理
+│   ├── CTDPService.ts # 15分钟预约系统
 │   └── StatsService.js       # 统计服务
 ├── handlers/
-│   └── commands.js     # 命令处理器
+│   └── taskCommands.ts     # 命令处理器
 └── utils/
     └── helpers.js      # 工具函数
 ```
 
 ## 开发命令
 
-由于代码尚未存在，以下是基于文档的计划命令：
+当前 TypeScript 入口先编译为 dist；使用 Yarn 执行开发和验证：
 
 ```bash
 # 开发
-npm run dev          # 使用 nodemon 启动
-npm start           # 生产环境启动
-npm test            # 运行测试
-npm run test:watch  # 监视模式测试
+yarn dev             # 使用 tsx watch 启动
+yarn build && yarn start # 编译并运行生产入口
+yarn test            # 运行 TypeScript 测试
+yarn test:watch      # 监视模式测试
 
 # Docker 部署
 docker-compose build
@@ -92,25 +92,27 @@ docker-compose logs -f bot
 
 **用户模型**：追踪统计数据
 
-- `stats.currentStreak`：任务失败时重置为 0
+- `stats.currentStreak`：主链失败时重置为 0
 - `stats.longestStreak`：历史记录
-- `settings.defaultDuration`：默认 25 分钟
+- `settings.defaultDuration`：默认 60 分钟，可由用户设置
 
-## 机器人命令（计划）
+## 机器人命令
 
 ### 基础命令
 
 - `/start` - 初始化用户
-- `/task <描述> [时长]` - 创建任务（默认 25 分钟）
-- `/reserve` - 15 分钟后安排任务
+- `/task <描述> [时长]` - 创建任务（默认 60 分钟）
+- `/reserve` - 建立预约承诺，并在 15 分钟内启动
 - `/status` - 显示当前进度
 - `/help` - 显示帮助
 
 ### 统计功能
 
 - `/stats` - 今日统计
-- `/week` - 周报
-- `/export [格式]` - 导出数据（json/csv）
+- `/week` - 最近 7 天周报
+- `/settings` - 默认时长、时区、过程提醒
+- `/violation <行为>` - 主链下必为例判定
+- `/patterns ...` - RSIP 定式管理
 
 ## 测试策略
 

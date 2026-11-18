@@ -11,6 +11,7 @@ import {
   toLegacyCultivationShell
 } from '../services/CultivationStateAdapter.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
+import { divinationHistoryFields } from './DivinationHistory.js';
 import type {
   IUser,
   IUserActiveStats,
@@ -19,8 +20,16 @@ import type {
   IUserLevelInfo,
   IUserMethods,
   IUserModel,
+  IDivinationHistory,
   UserDocument
 } from '../types/models.js';
+
+const pendingDivinationSchema = new Schema<IDivinationHistory>({
+  ...divinationHistoryFields,
+  userId: { type: Number, required: true },
+  gameId: { type: String, required: true },
+  timestamp: { type: Date, required: true }
+}, { _id: false, excludeIndexes: true });
 
 const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
   {
@@ -33,7 +42,7 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
     lastName: String,
     settings: {
       defaultDuration: { type: Number, default: DEFAULT_TASK_DURATION_MINUTES },
-      reminderEnabled: { type: Boolean, default: true },
+      reminderEnabled: { type: Boolean, default: false },
       timezone: { type: String, default: 'UTC' },
       language: { type: String, default: 'zh-CN' }
     },
@@ -45,12 +54,39 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
       currentStreak: { type: Number, default: 0 },
       longestStreak: { type: Number, default: 0 },
       todayCompletedTasks: { type: Number, default: 0 },
+      settledTaskIds: { type: [String], default: [] },
+      startedTaskIds: { type: [String], default: [] },
       lastTaskDate: Date
     },
     preferences: {
       notificationSound: { type: Boolean, default: true },
-      progressReminders: { type: Boolean, default: true },
+      progressReminders: { type: Boolean, default: false },
       weeklyReport: { type: Boolean, default: true }
+    },
+    focusRewardReceipts: {
+      type: [
+        {
+          taskId: { type: String, required: true },
+          status: { type: String, enum: ['processing', 'settled', 'failed'], required: true },
+          reward: { type: Schema.Types.Mixed },
+          createdAt: { type: Date, required: true },
+          updatedAt: { type: Date, required: true },
+          processingUntil: Date,
+          processingToken: String
+        }
+      ],
+      default: []
+    },
+    pendingDivinationHistories: { type: [pendingDivinationSchema], default: undefined },
+    pendingFocusRewards: {
+      type: [{
+        _id: false,
+        taskId: { type: String, required: true },
+        duration: { type: Number, required: true, min: 0 },
+        confirmedAt: { type: Date, required: true },
+        legacyCurrentStreakBefore: { type: Number, required: true, min: 0 }
+      }],
+      default: undefined
     },
     cultivation: {
       spiritualPower: { type: Number, default: 0 },
@@ -81,7 +117,10 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
           realmSubStageId: { type: String, default: 'realmSubStage.taixi.xuanjing' },
           branchCultivationAttainments: { type: Schema.Types.Mixed, default: () => ({}) },
           battleLoadout: {
-            equippedBattleArtIds: { type: [String], default: () => createDefaultBattleLoadoutState().equippedBattleArtIds },
+            equippedBattleArtIds: {
+              type: [String],
+              default: () => createDefaultBattleLoadoutState().equippedBattleArtIds
+            },
             equippedDivinePowerIds: { type: [String], default: [] },
             equippedArtifactIds: { type: [String], default: [] },
             activeSupportArtId: { type: String, default: null }
@@ -136,6 +175,7 @@ const userSchema = new Schema<IUser, IUserModel, IUserMethods>(
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
   }
@@ -343,12 +383,15 @@ userSchema.methods.addAchievement = function addAchievement(this: UserDocument, 
 };
 
 userSchema.methods.ensureCanonicalCultivation = function ensureCanonicalCultivation(this: UserDocument) {
+  const pending = this.pendingFocusRewards?.[0];
+  const legacySource = pending ? { cultivation: this.cultivation,
+    stats: { currentStreak: pending.legacyCurrentStreakBefore } } : this;
   let canonical = this.cultivation.canonical ? cloneCanonicalCultivation(this.cultivation.canonical) : null;
-  const shouldReset = shouldRefreshCanonicalFromLegacy(this);
+  const shouldReset = shouldRefreshCanonicalFromLegacy(legacySource);
   let needsReplace = shouldReset || !this.cultivation.canonical?.state;
 
   if (!canonical || !canonical.state || shouldReset) {
-    canonical = deriveCanonicalSnapshotFromLegacy(this) as IUserCultivationCanonical;
+    canonical = deriveCanonicalSnapshotFromLegacy(legacySource) as IUserCultivationCanonical;
     this.replaceCanonicalCultivation(canonical);
   }
 
@@ -469,9 +512,7 @@ userSchema.virtual('divinationWinRate').get(function getDivinationWinRate(this: 
     return 0;
   }
 
-  return Number.parseFloat(
-    ((this.cultivation.divinationWins / this.cultivation.divinationCount) * 100).toFixed(1)
-  );
+  return Number.parseFloat(((this.cultivation.divinationWins / this.cultivation.divinationCount) * 100).toFixed(1));
 });
 
 userSchema.virtual('breakthroughSuccessRate').get(function getBreakthroughSuccessRate(this: UserDocument) {

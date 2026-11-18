@@ -16,7 +16,10 @@ export function resolveEnvFilePath(moduleDirectory: string, fileName = envFileNa
     path.resolve(moduleDirectory, `../../${fileName}`),
     path.resolve(moduleDirectory, `../../../${fileName}`)
   ];
-  const defaultPath = candidatePaths[0] ?? path.resolve(moduleDirectory, `../${fileName}`);
+  const rootDirectory = path.basename(path.dirname(moduleDirectory)) === 'dist'
+    ? path.resolve(moduleDirectory, '../..')
+    : path.resolve(moduleDirectory, '..');
+  const defaultPath = path.join(rootDirectory, fileName);
 
   return candidatePaths.find((candidatePath) => fs.existsSync(candidatePath)) ?? defaultPath;
 }

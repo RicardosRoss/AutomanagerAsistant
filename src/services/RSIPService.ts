@@ -1,19 +1,9 @@
 import PatternTree from '../models/PatternTree.js';
-import type {
-  AddPatternInput,
-  AddPatternResult,
-  DeletePatternResult
-} from '../types/services.js';
+import User from '../models/User.js';
+import moment from 'moment-timezone';
+import type { AddPatternInput, AddPatternResult, DeletePatternResult } from '../types/services.js';
 import type { PatternTreeDocument } from '../types/models.js';
 import { generateId } from '../utils/index.js';
-
-function todayStr(): string {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
 
 class RSIPService {
   /**
@@ -21,12 +11,21 @@ class RSIPService {
    * Enforces daily limit: only one new pattern per day by default.
    */
   async addPattern(userId: number, input: AddPatternInput): Promise<AddPatternResult> {
+    const title = input.title.trim();
+    if (!title || title.length > 200) throw new Error('定式内容必须为1到200个字符');
     const tree = await PatternTree.findOrCreateForUser(userId);
-    const today = todayStr();
+    const user = await User.findOne({ userId });
+    const zone = user?.settings.timezone ?? 'UTC';
+    const now = moment().tz(moment.tz.zone(zone) ? zone : 'UTC');
+    const today = now.format('YYYY-MM-DD');
 
     // Check daily limit
     const todayNodes = tree.nodes.filter((n) => n.createdOn === today);
-    if (todayNodes.length >= tree.limits.maxNewPatternsPerDay) {
+    if (
+      todayNodes.length >= 1 ||
+      tree.lastAddedOn === today ||
+      (tree.lastAddedAt && tree.lastAddedAt.getTime() >= now.clone().startOf('day').valueOf())
+    ) {
       throw new Error('今日已添加过新定式');
     }
 
@@ -45,7 +44,7 @@ class RSIPService {
     tree.nodes.push({
       nodeId: newNodeId,
       parentId,
-      title: input.title,
+      title,
       status: 'pending',
       createdOn: today,
       children: []
@@ -59,10 +58,16 @@ class RSIPService {
       }
     }
 
-    await tree.save();
-
-    // Re-fetch to get clean document
-    const updatedTree = (await PatternTree.findById(tree._id))!;
+    const updatedTree = await PatternTree.findOneAndUpdate(
+      {
+        _id: tree._id,
+        __v: tree.__v,
+        lastAddedOn: { $ne: today }
+      },
+      { $set: { nodes: tree.nodes, lastAddedOn: today, lastAddedAt: now.toDate() }, $inc: { __v: 1 } },
+      { new: true }
+    );
+    if (!updatedTree) throw new Error('今日已添加过新定式，或定式树已变化，请刷新');
     return { tree: updatedTree, newNodeId };
   }
 
@@ -70,8 +75,8 @@ class RSIPService {
    * Delete a pattern node and ALL its descendants using a stack (no recursion).
    * Updates the parent's children array to remove the deleted node reference.
    */
-  async deletePatternStack(treeId: string, nodeId: string): Promise<DeletePatternResult> {
-    const tree = await PatternTree.findOne({ treeId });
+  async deletePatternStack(treeId: string, nodeId: string, userId?: number): Promise<DeletePatternResult> {
+    const tree = await PatternTree.findOne({ treeId, ...(userId === undefined ? {} : { userId }) });
     if (!tree) {
       throw new Error(`定式树 ${treeId} 不存在`);
     }
@@ -87,6 +92,7 @@ class RSIPService {
 
     while (stack.length > 0) {
       const currentId = stack.pop()!;
+      if (removedNodeIds.includes(currentId)) continue;
       removedNodeIds.push(currentId);
 
       const node = tree.nodes.find((n) => n.nodeId === currentId);
@@ -109,9 +115,31 @@ class RSIPService {
       }
     }
 
-    await tree.save();
+    const updated = await PatternTree.updateOne(
+      { _id: tree._id, __v: tree.__v },
+      {
+        $set: { nodes: tree.nodes },
+        $inc: { __v: 1 }
+      }
+    );
+    if (!updated.modifiedCount) throw new Error('定式树已变化，请刷新后重试');
 
     return { removedNodeIds };
+  }
+
+  async recordExecution(userId: number, nodeId: string, success = true) {
+    const tree = await PatternTree.findOne({ userId, 'nodes.nodeId': nodeId });
+    const node = tree?.nodes.find((entry) => entry.nodeId === nodeId);
+    if (!tree || !node) throw new Error('定式不存在或已经回溯删除');
+    const removedNodeIds = success ? [] : (await this.deletePatternStack(tree.treeId, nodeId, userId)).removedNodeIds;
+    await PatternTree.updateOne(
+      { _id: tree._id, ...(success ? { 'nodes.nodeId': nodeId } : {}) },
+      {
+        ...(success ? { $set: { 'nodes.$.status': 'active' }, $inc: { __v: 1 } } : {}),
+        $push: { executions: { nodeId, title: node.title, executedAt: new Date(), success, removedNodeIds } }
+      }
+    );
+    return { title: node.title, removedNodeIds };
   }
 
   /**
