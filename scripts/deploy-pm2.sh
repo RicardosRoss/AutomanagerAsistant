@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # 项目目录
-PROJECT_DIR="/home/telegramAutomanager"
+PROJECT_DIR="/home/telegramBots/telegramAutomanager"
 APP_NAME="telegram-self-control-bot"
 
 # 检查必要的服务
@@ -51,10 +51,8 @@ install_dependencies() {
     echo -e "${YELLOW}📦 检查依赖...${NC}"
     cd $PROJECT_DIR
 
-    if [ ! -d "node_modules" ]; then
-        echo -e "${YELLOW}安装 Node.js 依赖...${NC}"
-        yarn install --production
-    fi
+    yarn install --immutable
+    yarn build
 
     echo -e "${GREEN}✅ 依赖检查完成${NC}"
 }
@@ -70,9 +68,8 @@ stop_existing_process() {
         echo -e "${GREEN}✅ 已停止现有 PM2 进程${NC}"
     fi
 
-    # 查找并停止手动启动的应用进程，避免与 PM2 新实例发生 polling 冲突
-    APP_PROCESS_PATTERN="(${PROJECT_DIR}/dist/src/app.js|${PROJECT_DIR}/src/app\\.(ts|js)|dist/src/app.js|src/app\\.(ts|js))"
-    PIDS=$(pgrep -f "$APP_PROCESS_PATTERN" | awk '!seen[$0]++' | head -20 || true)
+    # 查找并停止直接运行的进程
+    PIDS=$(pgrep -f "node.*$PROJECT_DIR/dist/src/app.js|tsx.*$PROJECT_DIR/src/app.ts|node.*$PROJECT_DIR/src/app.js" | head -5 || true)
     if [ ! -z "$PIDS" ]; then
         echo -e "${YELLOW}停止直接运行的进程: $PIDS${NC}"
         echo $PIDS | xargs kill -TERM 2>/dev/null || true
@@ -87,7 +84,7 @@ start_application() {
     cd $PROJECT_DIR
 
     # 使用 PM2 启动
-    pm2 start ecosystem.config.js --env production
+    pm2 start ecosystem.config.cjs --env production
 
     # 保存 PM2 配置
     pm2 save

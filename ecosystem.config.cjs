@@ -5,17 +5,23 @@ module.exports = {
   apps: [
     {
       name: 'telegram-self-control-bot', // 服务名称
-      script: 'dist/src/app.js',
-      cwd: '/home/telegramAutomanager', // 工作目录（绝对路径）
+      script: './start.sh', // 使用启动脚本
+      cwd: '/home/telegramBots/telegramAutomanager', // 工作目录（绝对路径）
 
       // Interpreter settings
-      interpreter: 'node',
+      interpreter: 'bash',
 
       // Environment variables - Production
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
         REDIS_DB: 0, // 明确指定使用 DB 0
+        ...process.env,
+      },
+      env_production: {
+        NODE_ENV: 'production',
+        PORT: 3000,
+        REDIS_DB: 0,
         ...process.env,
       },
       // Environment variables - Development
@@ -27,6 +33,7 @@ module.exports = {
       },
 
       // Process management
+      // Keep one polling/recovery instance; cluster needs a distributed reconciliation lock first.
       instances: 1,
       exec_mode: 'fork',
       autorestart: true,
