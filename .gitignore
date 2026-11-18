@@ -51,3 +51,9 @@ temp/
 picture/
 开发方案.md
 development/
+
+# Runtime / local / macOS metadata
+config/podcast-bridge.env
+reports/
+podcast-spool/
+._*
