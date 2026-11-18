@@ -85,6 +85,8 @@ const baseConfig: AppConfig = {
     maxFiles: '14d'
   },
   security: {
+    scheduleSyncToken: process.env.NAUTILUS_SYNC_TOKEN,
+    scheduleSyncUserId: Number(process.env.NAUTILUS_SYNC_USER_ID) || undefined,
     jwtSecret: process.env.JWT_SECRET,
     encryptionKey: process.env.ENCRYPTION_KEY,
     rateLimiting: {

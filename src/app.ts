@@ -8,6 +8,7 @@ import ContentNameResolver from './services/ContentNameResolver.js';
 import config from '../config/index.js';
 import logger from './utils/logger.js';
 import models from './models/index.js';
+import { createScheduleRouter } from './routes/scheduleSync.js';
 import type { QueueHealthCheck } from './types/services.js';
 
 class SelfControlApp {
@@ -100,6 +101,11 @@ class SelfControlApp {
   }
 
   async setupExpress(): Promise<void> {
+    this.app.use('/api/nautilus', createScheduleRouter(() => this.bot?.scheduleService ?? null, {
+      token: config.security.scheduleSyncToken, userId: config.security.scheduleSyncUserId
+    }, () => this.db.isConnected && this.redis.isConnected && Boolean(this.bot?.isRunning)));
+    this.app.use(express.json());
+    this.app.use(express.urlencoded({ extended: true }));
 
     this.app.get('/health', (_req, res) => {
       const ready = this.db.isConnected && this.redis.isConnected && Boolean(this.bot?.isRunning);

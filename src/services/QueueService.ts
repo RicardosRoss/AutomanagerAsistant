@@ -6,6 +6,7 @@ import AuxChain from '../models/AuxChain.js';
 import TaskChain from '../models/TaskChain.js';
 import MainChain from '../models/MainChain.js';
 import User from '../models/User.js';
+import type ScheduleService from './ScheduleService.js';
 import type { AuxChainDocument } from '../types/models.js';
 import { DEFAULT_TASK_DURATION_MINUTES } from '../types/taskDefaults.js';
 import { formatDurationFromSeconds } from '../utils/helpers.js';
@@ -35,6 +36,8 @@ class QueueService {
   maintenanceQueue: BullQueue<Record<string, never>> | null = null;
 
   isInitialized: boolean;
+
+  scheduleService: ScheduleService | null = null;
 
   reservationExpiryHandler: ((reservationId: string) => Promise<void>) | null = null;
 
@@ -115,6 +118,8 @@ class QueueService {
       this.setupProcessors();
       this.setupEventListeners();
 
+      await this.scheduleService?.initialize(this.botInstance);
+
       this.isInitialized = true;
       await this.ensureRecoverySchedule();
       await this.requestFocusRewardRecovery().catch(error => {
@@ -158,6 +163,7 @@ class QueueService {
     await this.ensureRecoverySchedule();
     await this.requestFocusRewardRecovery();
     await this.reconcileReservations();
+    await this.scheduleService?.restoreAfterRedisReconnect();
   }
 
   async requestFocusRewardRecovery(): Promise<void> {
@@ -828,6 +834,7 @@ class QueueService {
   async close(): Promise<void> {
     this.isInitialized = false;
     try {
+      await this.scheduleService?.close();
       if (this.maintenanceQueue) {
         await this.maintenanceQueue.close();
       }

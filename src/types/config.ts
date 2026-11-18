@@ -54,6 +54,8 @@ export interface AppConfig {
     maxFiles: string;
   };
   security: {
+    scheduleSyncToken?: string;
+    scheduleSyncUserId?: number;
     jwtSecret?: string;
     encryptionKey?: string;
     rateLimiting: {

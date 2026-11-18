@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "vault": "/absolute/path/to/diary",
+  "timezone": "Asia/Shanghai",
+  "sshHost": "vps",
+  "remoteProject": "/home/telegramBots/telegramAutomanager",
+  "remoteNode": "/root/.nvm/versions/node/v23.1.0/bin/node"
+}
